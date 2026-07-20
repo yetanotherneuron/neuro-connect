@@ -47,6 +47,9 @@ async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* ignore */
     }
+    if (res.status === 401 && authToken) {
+      window.dispatchEvent(new CustomEvent("nc-auth-expired", { detail: { message: msg } }));
+    }
     throw new Error(msg);
   }
   if (res.status === 204) {
@@ -197,6 +200,32 @@ export function reactMessage(id: string, emoji: string) {
 
 export function listDmMessages(dmId: string) {
   return apiRequest<MessageInfo[]>(`/api/dms/${dmId}/messages?limit=100`);
+}
+
+export function markChannelRead(channelId: string, messageId?: string) {
+  return apiRequest<void>(`/api/channels/${channelId}/read`, {
+    method: "POST",
+    body: JSON.stringify({ message_id: messageId || null }),
+  });
+}
+
+export function markDmRead(dmId: string, messageId?: string) {
+  return apiRequest<void>(`/api/dms/${dmId}/read`, {
+    method: "POST",
+    body: JSON.stringify({ message_id: messageId || null }),
+  });
+}
+
+export function searchChannelMessages(channelId: string, q: string, limit = 25) {
+  return apiRequest<MessageInfo[]>(
+    `/api/channels/${channelId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+}
+
+export function searchDmMessages(dmId: string, q: string, limit = 25) {
+  return apiRequest<MessageInfo[]>(
+    `/api/dms/${dmId}/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
 }
 
 export function sendDmMessage(

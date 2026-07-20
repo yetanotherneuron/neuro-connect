@@ -65,3 +65,30 @@ npm run tauri dev
 | `GET /api/media/stream/{id}` | Proxied media bytes |
 
 LAN discovery remains optional. Voice + screen share + media relay use `/api/ws` and HTTP as documented in [VOICE.md](VOICE.md) / [SERVER_SETUP.md](SERVER_SETUP.md).
+
+## Desktop UI layout (0.3+)
+
+The desktop client lives under `apps/desktop/src/`:
+
+| Piece | Path |
+|-------|------|
+| Design tokens + button primitives | `styles/global.css` |
+| App shell (state + view switcher) | `pages/MainShell.tsx` |
+| Server rail / channel sidebar / members | `components/ServerRail.tsx`, `ChannelSidebar.tsx`, `MemberPanel.tsx` |
+| Settings | `components/SettingsView.tsx` + `SettingsView.css` |
+| Chat + messages | `ChatView.tsx` / `MessageItem.tsx` (+ co-located CSS) |
+| Dialogs | `components/Modal.tsx` |
+| Emoji picker | `components/EmojiPicker.tsx` (`emoji-picker-react`) |
+
+Shell columns: **server rail → channel/DM sidebar → main surface → members** (server mode). Main pane uses an elevated surface framed against `--bg-deep`.
+
+### Unread + search APIs
+
+| URL | Purpose |
+|-----|---------|
+| `POST /api/channels/{id}/read` | Mark channel read (optional `{ message_id }`) |
+| `POST /api/dms/{id}/read` | Mark DM read |
+| `GET /api/channels/{id}/messages/search?q=` | Search channel messages |
+| `GET /api/dms/{id}/messages/search?q=` | Search DM messages |
+
+Channel/DM list payloads include `unread_count` (default `0`).

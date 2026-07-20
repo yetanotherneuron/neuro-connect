@@ -39,6 +39,7 @@ export interface ChannelInfo {
   name: string;
   kind: ChannelKind;
   position: number;
+  unread_count?: number;
 }
 
 export interface MemberInfo {
@@ -73,6 +74,7 @@ export interface DmThread {
   kind?: string;
   members?: UserPublic[];
   updated_at: string;
+  unread_count?: number;
 }
 
 export interface AuthResponse {

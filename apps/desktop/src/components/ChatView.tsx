@@ -1,19 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteMessage,
   editMessage,
   listDmMessages,
   listMessages,
   reactMessage,
+  searchChannelMessages,
+  searchDmMessages,
   sendDmMessage,
   sendMessage,
   uploadFile,
 } from "../lib/api";
 import type { MessageInfo, ReactionInfo, UserPublic } from "../lib/types";
-import { useToast } from "./Toast";
+import { EmojiPickerPopover } from "./EmojiPicker";
+import { PromptDialog } from "./Modal";
 import { MessageItem } from "./MessageItem";
+import { useToast } from "./Toast";
+import "./ChatView.css";
 
 const MAX_MB = 12;
+
+function sameAuthorGroup(prev: MessageInfo | undefined, curr: MessageInfo): boolean {
+  if (!prev) return false;
+  if (prev.author.id !== curr.author.id) return false;
+  const a = new Date(prev.created_at).getTime();
+  const b = new Date(curr.created_at).getTime();
+  return b - a < 5 * 60 * 1000;
+}
 
 export function ChatView({
   mode,
@@ -32,6 +45,14 @@ export function ChatView({
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [editTarget, setEditTarget] = useState<MessageInfo | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<MessageInfo[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showJump, setShowJump] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -40,6 +61,9 @@ export function ChatView({
   useEffect(() => {
     let cancelled = false;
     setMessages([]);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchHits([]);
     (async () => {
       try {
         const msgs =
@@ -110,8 +134,34 @@ export function ChatView({
 
   useEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) {
+      el.scrollTop = el.scrollHeight;
+      setShowJump(false);
+    } else {
+      setShowJump(true);
+    }
   }, [messages]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchHits([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setSearching(true);
+      const run =
+        mode === "channel"
+          ? searchChannelMessages(targetId, searchQuery.trim())
+          : searchDmMessages(targetId, searchQuery.trim());
+      void run
+        .then(setSearchHits)
+        .catch((e) => pushToast(e instanceof Error ? e.message : "search failed", "error"))
+        .finally(() => setSearching(false));
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [searchQuery, mode, targetId, pushToast]);
 
   async function handleSend() {
     const content = text.trim();
@@ -161,17 +211,6 @@ export function ChatView({
     }
   }
 
-  async function handleEdit(msg: MessageInfo) {
-    const next = prompt("Edit message", msg.content);
-    if (next == null || next.trim() === msg.content) return;
-    try {
-      const updated = await editMessage(msg.id, next.trim());
-      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "edit failed", "error");
-    }
-  }
-
   async function handleReact(id: string, emoji: string) {
     try {
       const updated = await reactMessage(id, emoji);
@@ -187,64 +226,186 @@ export function ChatView({
     return msg.author.id === me.id;
   }
 
+  function jumpToLatest() {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setShowJump(false);
+  }
+
+  function jumpToMessage(id: string) {
+    setHighlightId(id);
+    const el = document.getElementById(`msg-${id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => setHighlightId(null), 1400);
+  }
+
+  const grouped = useMemo(() => {
+    return messages.map((m, i) => ({
+      message: m,
+      grouped: sameAuthorGroup(messages[i - 1], m),
+    }));
+  }, [messages]);
+
   return (
     <section className="chat app-fade">
       <header className="chat-header">
-        <h2>{title}</h2>
-        <span className="muted">Markdown · spoilers ||like this|| · reactions</span>
+        <div className="chat-header-main">
+          <h2>{title}</h2>
+          <span className="muted">Markdown · spoilers ||like this|| · reactions</span>
+        </div>
+        <div className="chat-header-actions">
+          {searchOpen ? (
+            <div className="chat-search-wrap">
+              <input
+                className="nc-input"
+                value={searchQuery}
+                placeholder="Search messages…"
+                autoFocus
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <button
+                type="button"
+                className="ghost sm"
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                  setSearchHits([]);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="ghost sm" onClick={() => setSearchOpen(true)}>
+              Search
+            </button>
+          )}
+        </div>
       </header>
-      <div className="chat-messages" ref={listRef}>
-        {messages.map((m) => (
-          <MessageItem
-            key={m.id}
-            message={m}
-            meId={me.id}
-            canDelete={canDelete(m)}
-            onDelete={() => void handleDelete(m.id)}
-            onEdit={() => void handleEdit(m)}
-            onReact={(emoji) => void handleReact(m.id, emoji)}
-            onOpenProfile={onOpenProfile}
+      <div className="chat-body">
+        <div className="chat-messages" ref={listRef}>
+          {grouped.map(({ message: m, grouped: isGrouped }) => (
+            <MessageItem
+              key={m.id}
+              message={m}
+              meId={me.id}
+              grouped={isGrouped}
+              highlighted={highlightId === m.id}
+              canDelete={canDelete(m)}
+              onDelete={() => void handleDelete(m.id)}
+              onEdit={() => setEditTarget(m)}
+              onReact={(emoji) => void handleReact(m.id, emoji)}
+              onOpenProfile={onOpenProfile}
+            />
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        {searchOpen && (
+          <aside className="chat-search-panel">
+            <h3>{searching ? "Searching…" : `Results (${searchHits.length})`}</h3>
+            <div className="chat-search-results">
+              {!searchQuery.trim() && <p className="muted">Type to search this chat.</p>}
+              {searchQuery.trim() && searchHits.length === 0 && !searching && (
+                <p className="muted">No matches</p>
+              )}
+              {searchHits.map((hit) => (
+                <button
+                  key={hit.id}
+                  type="button"
+                  className="chat-search-hit"
+                  onClick={() => jumpToMessage(hit.id)}
+                >
+                  <strong>{hit.author.display_name}</strong>
+                  <span>{hit.content || hit.attachment_name || "(attachment)"}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
+      </div>
+      {showJump && (
+        <button type="button" className="chat-jump-bar" onClick={jumpToLatest}>
+          Jump to latest
+        </button>
+      )}
+      <div className="chat-composer">
+        <div className="chat-composer-inner">
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="Upload (max 12 MB)"
+            disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+          >
+            +
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleFile(f);
+              e.target.value = "";
+            }}
           />
-        ))}
-        <div ref={bottomRef} />
+          <textarea
+            className="nc-input"
+            value={text}
+            placeholder={`Message ${title}`}
+            rows={1}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+          />
+          <div className="chat-composer-emoji">
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Emoji"
+              onClick={() => setEmojiOpen((v) => !v)}
+            >
+              ☺
+            </button>
+            {emojiOpen && (
+              <EmojiPickerPopover
+                onPick={(emoji) => {
+                  setText((t) => t + emoji);
+                  setEmojiOpen(false);
+                }}
+                onClose={() => setEmojiOpen(false)}
+              />
+            )}
+          </div>
+          <button type="button" className="primary sm" disabled={sending} onClick={() => void handleSend()}>
+            Send
+          </button>
+        </div>
       </div>
-      <div className="chat-input">
-        <button
-          type="button"
-          className="icon-btn"
-          title="Upload (max 12 MB)"
-          disabled={uploading}
-          onClick={() => fileRef.current?.click()}
-        >
-          +
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void handleFile(f);
-            e.target.value = "";
+
+      {editTarget && (
+        <PromptDialog
+          title="Edit message"
+          label="Content"
+          defaultValue={editTarget.content}
+          confirmLabel="Save"
+          onCancel={() => setEditTarget(null)}
+          onConfirm={(next) => {
+            const msg = editTarget;
+            setEditTarget(null);
+            if (next.trim() === msg.content) return;
+            void editMessage(msg.id, next.trim())
+              .then((updated) => {
+                setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+              })
+              .catch((e) => pushToast(e instanceof Error ? e.message : "edit failed", "error"));
           }}
         />
-        <textarea
-          className="nc-input"
-          value={text}
-          placeholder={`Message ${title}`}
-          rows={1}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
-            }
-          }}
-        />
-        <button type="button" className="primary" disabled={sending} onClick={() => void handleSend()}>
-          Send
-        </button>
-      </div>
+      )}
     </section>
   );
 }

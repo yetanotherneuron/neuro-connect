@@ -1,0 +1,21 @@
+.nc-emoji-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+}
+
+.msg-body .nc-emoji-popover {
+  bottom: auto;
+  top: 28px;
+  right: 4px;
+}
+
+.chat-composer-emoji .nc-emoji-popover {
+  bottom: calc(100% + 8px);
+  right: 0;
+}

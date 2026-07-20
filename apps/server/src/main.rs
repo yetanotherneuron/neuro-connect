@@ -110,6 +110,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/channels/{id}/messages",
             post(chat_handler::send_message),
         )
+        .route(
+            "/api/channels/{id}/messages/search",
+            get(chat_handler::search_channel_messages),
+        )
+        .route(
+            "/api/channels/{id}/read",
+            post(chat_handler::mark_channel_read),
+        )
         .route("/api/messages/{id}", delete(chat_handler::delete_message))
         .route("/api/messages/{id}", put(chat_handler::edit_message))
         .route(
@@ -127,6 +135,11 @@ async fn main() -> anyhow::Result<()> {
             "/api/dms/{dm_id}/messages",
             post(chat_handler::send_dm_message),
         )
+        .route(
+            "/api/dms/{dm_id}/messages/search",
+            get(chat_handler::search_dm_messages),
+        )
+        .route("/api/dms/{dm_id}/read", post(chat_handler::mark_dm_read))
         .route("/api/upload", post(chat_handler::upload_file))
         .route("/api/ws", get(chat_handler::ws_handler))
         .route("/api/voice/status", get(voice_manager::voice_status))

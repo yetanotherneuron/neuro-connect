@@ -18,12 +18,11 @@ import {
   loadSession,
   persistSession,
   saveServerUrl,
+  wipeSession,
 } from "./lib/native";
 import type { ClientConfig, ServerMeta, UpdateManifest, UserPublic } from "./lib/types";
 import { AuthPage } from "./pages/AuthPage";
 import { MainShell } from "./pages/MainShell";
-import "./pages/AuthPage.css";
-import "./pages/MainShell.css";
 
 function compareSemver(a: string, b: string): number {
   const pa = a.split(".").map((x) => parseInt(x, 10) || 0);
@@ -89,6 +88,23 @@ function AppInner() {
       setReady(true);
     })();
   }, []);
+
+  useEffect(() => {
+    const onExpired = () => {
+      void (async () => {
+        setAuthToken(null);
+        setUser(null);
+        try {
+          await wipeSession();
+        } catch {
+          /* ignore */
+        }
+        pushToast("Session expired — please log in again", "error");
+      })();
+    };
+    window.addEventListener("nc-auth-expired", onExpired);
+    return () => window.removeEventListener("nc-auth-expired", onExpired);
+  }, [pushToast]);
 
   async function handleAuth(data: {
     username: string;

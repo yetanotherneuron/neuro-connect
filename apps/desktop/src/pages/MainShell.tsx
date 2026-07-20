@@ -1,42 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AvatarImage, ProfileCard } from "../components/Avatar";
+import { ProfileCard } from "../components/Avatar";
+import { ChannelSidebar, dmTitle } from "../components/ChannelSidebar";
 import { ChatView } from "../components/ChatView";
-import { useContextMenu } from "../components/ContextMenu";
 import { FriendsHome } from "../components/FriendsHome";
 import { MediaRelayBar } from "../components/MediaRelayBar";
+import { MemberPanel } from "../components/MemberPanel";
+import { ConfirmDialog, Modal, PromptDialog, SelectDialog } from "../components/Modal";
+import { ServerRail } from "../components/ServerRail";
+import { SettingsView } from "../components/SettingsView";
 import { useToast } from "../components/Toast";
 import { VoiceConnectedBar, VoicePanel } from "../components/VoicePanel";
 import {
-  banUser,
   blockUser,
-  claimGlobalAdmin,
   connectRealtime,
   createChannel,
   createGroupDm,
   createServer,
-  deleteAdminServer,
   deleteChannel,
   fetchFriends,
   joinServer,
-  listAdminUsers,
   listChannels,
   listDms,
   listGameHosts,
   listMembers,
   listServers,
-  logoutUser,
+  markChannelRead,
+  markDmRead,
   openDm,
   removeFriend,
   renameChannel,
   setMemberRank,
-  unbanUser,
-  updateProfile,
   type RealtimeClient,
 } from "../lib/api";
-import { wipeSession, saveVoiceSettings } from "../lib/native";
 import { VoiceSession } from "../lib/voice/VoiceSession";
 import type {
-  AdminUserInfo,
   ChannelInfo,
   ClientConfig,
   DmThread,
@@ -44,14 +41,12 @@ import type {
   GameHostInfo,
   MediaRelayInfo,
   MemberInfo,
-  Rank,
   ServerInfo,
   ServerMeta,
   UserPublic,
   VoicePeerInfo,
 } from "../lib/types";
 import "./MainShell.css";
-import "../components/FriendsHome.css";
 
 type NavMode = "home" | "server";
 
@@ -62,6 +57,16 @@ type View =
   | { kind: "friends" }
   | { kind: "settings" }
   | { kind: "empty" };
+
+type DialogState =
+  | { type: "create-server" }
+  | { type: "join-server" }
+  | { type: "channel-name"; next: "create" }
+  | { type: "channel-kind"; name: string }
+  | { type: "rename-channel"; channel: ChannelInfo }
+  | { type: "delete-channel"; channel: ChannelInfo }
+  | { type: "group-dm" }
+  | null;
 
 const HIDDEN_DMS_KEY = "nc-hidden-dms";
 
@@ -117,7 +122,9 @@ export function MainShell({
   const [hiddenDms, setHiddenDms] = useState<Set<string>>(() => loadHiddenDms());
   const [view, setView] = useState<View>({ kind: "friends" });
   const [profileUser, setProfileUser] = useState<UserPublic | null>(null);
-  const { openContextMenu, contextMenuNode } = useContextMenu();
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupSelected, setGroupSelected] = useState<Set<string>>(new Set());
 
   const [voicePeers, setVoicePeers] = useState<VoicePeerInfo[]>([]);
   const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null);
@@ -159,6 +166,16 @@ export function MainShell({
       online: onlineIds.has(f.user.id) || f.online,
     }));
   }, [friendsSnap, onlineIds]);
+
+  const serverUnread = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of channels) {
+      if ((c.unread_count || 0) > 0) {
+        map[c.server_id] = (map[c.server_id] || 0) + (c.unread_count || 0);
+      }
+    }
+    return map;
+  }, [channels]);
 
   async function refreshFriends() {
     try {
@@ -253,9 +270,28 @@ export function MainShell({
         relay_id?: string;
         user_id?: string;
         online?: boolean;
+        message?: { channel_id?: string | null; dm_id?: string | null; author?: { id?: string } };
       };
       if (ev.type === "message_created") {
         window.dispatchEvent(new CustomEvent("nc-message", { detail: ev }));
+        if (ev.message?.channel_id && ev.message.author?.id !== user.id) {
+          setChannels((prev) =>
+            prev.map((c) =>
+              c.id === ev.message!.channel_id
+                ? { ...c, unread_count: (c.unread_count || 0) + 1 }
+                : c,
+            ),
+          );
+        }
+        if (ev.message?.dm_id && ev.message.author?.id !== user.id) {
+          setDms((prev) =>
+            prev.map((d) =>
+              d.id === ev.message!.dm_id
+                ? { ...d, unread_count: (d.unread_count || 0) + 1 }
+                : d,
+            ),
+          );
+        }
       }
       if (ev.type === "message_updated") {
         window.dispatchEvent(new CustomEvent("nc-message-updated", { detail: ev }));
@@ -317,7 +353,6 @@ export function MainShell({
     };
     window.addEventListener("nc-voice-hotkey", onHotkey);
 
-    // Focused-window keyboard fallback (also works in browser dev).
     const onKeyDown = (e: KeyboardEvent) => {
       if (!voiceRef.current?.activeChannelId) return;
       const cfg = configRef.current;
@@ -376,6 +411,29 @@ export function MainShell({
     voiceRef.current?.setPushToTalk(config.push_to_talk);
   }, [config.push_to_talk]);
 
+  useEffect(() => {
+    if (view.kind === "channel") {
+      void markChannelRead(view.id)
+        .then(() => {
+          setChannels((prev) =>
+            prev.map((c) => (c.id === view.id ? { ...c, unread_count: 0 } : c)),
+          );
+        })
+        .catch(() => {
+          /* older servers without endpoint */
+        });
+    }
+    if (view.kind === "dm") {
+      void markDmRead(view.id)
+        .then(() => {
+          setDms((prev) => prev.map((d) => (d.id === view.id ? { ...d, unread_count: 0 } : d)));
+        })
+        .catch(() => {
+          /* older servers */
+        });
+    }
+  }, [view]);
+
   async function joinVoice(channelId: string) {
     setVoiceConnecting(true);
     try {
@@ -397,85 +455,6 @@ export function MainShell({
     return channels.find((c) => c.id === voiceChannelId)?.name || "Voice";
   }, [channels, voiceChannelId]);
 
-  async function handleCreateServer() {
-    const name = prompt("Server name");
-    if (!name) return;
-    try {
-      const s = await createServer(name);
-      await refreshServers();
-      await selectServer(s);
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "create failed", "error");
-    }
-  }
-
-  async function handleJoin() {
-    const code = prompt("Invite code");
-    if (!code) return;
-    try {
-      const s = await joinServer(code.trim());
-      await refreshServers();
-      await selectServer(s);
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "join failed", "error");
-    }
-  }
-
-  async function handleAddChannel() {
-    if (!activeServer || (myRank !== "owner" && myRank !== "admin" && !user.is_global_admin)) {
-      pushToast("Admin required to create channels", "error");
-      return;
-    }
-    const name = prompt("Channel name");
-    if (!name) return;
-    const kindRaw = prompt('Channel type: "text" or "voice"', "text");
-    if (!kindRaw) return;
-    const kind = kindRaw.trim().toLowerCase() === "voice" ? "voice" : "text";
-    try {
-      await createChannel(activeServer.id, name, kind);
-      setChannels(await listChannels(activeServer.id));
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "channel failed", "error");
-    }
-  }
-
-  async function handleRenameChannel(ch: ChannelInfo) {
-    const name = prompt("Rename channel", ch.name);
-    if (!name || name === ch.name) return;
-    try {
-      await renameChannel(ch.id, name);
-      if (activeServer) setChannels(await listChannels(activeServer.id));
-      if (view.kind === "channel" && view.id === ch.id) {
-        setView({ kind: "channel", id: ch.id, title: `# ${name}` });
-      }
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "rename failed", "error");
-    }
-  }
-
-  async function handleDeleteChannel(ch: ChannelInfo) {
-    if (!confirm(`Delete #${ch.name}?`)) return;
-    try {
-      await deleteChannel(ch.id);
-      if (activeServer) setChannels(await listChannels(activeServer.id));
-      if (view.kind === "channel" && view.id === ch.id) setView({ kind: "empty" });
-      if (view.kind === "voice" && view.id === ch.id) setView({ kind: "empty" });
-      if (voiceChannelId === ch.id) void leaveVoice();
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "delete failed", "error");
-    }
-  }
-
-  async function handleRank(member: MemberInfo, rank: Rank) {
-    if (!activeServer) return;
-    try {
-      await setMemberRank(activeServer.id, member.user.id, rank);
-      setMembers(await listMembers(activeServer.id));
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "rank failed", "error");
-    }
-  }
-
   async function handleOpenDm(peer: UserPublic) {
     try {
       const dm = await openDm(peer.id);
@@ -493,11 +472,6 @@ export function MainShell({
     }
   }
 
-  function dmTitle(d: DmThread) {
-    if (d.kind === "group" || d.name) return d.name || "Group";
-    return `@ ${d.peer?.display_name || "DM"}`;
-  }
-
   function closeDm(id: string) {
     const next = new Set(hiddenDms);
     next.add(id);
@@ -511,256 +485,30 @@ export function MainShell({
 
   return (
     <div className="shell">
-      <aside className="server-rail">
-        <button
-          type="button"
-          className={`server-btn home ${navMode === "home" ? "active" : ""}`}
-          title="Home"
-          onClick={() => void selectHome()}
-        >
-          NC
-        </button>
-        <div className="rail-sep" />
-        {servers.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={`server-btn ${navMode === "server" && activeServer?.id === s.id ? "active" : ""}`}
-            title={s.name}
-            onClick={() => void selectServer(s)}
-          >
-            {s.name.slice(0, 2).toUpperCase()}
-          </button>
-        ))}
-        <button type="button" className="server-btn add" title="Create server" onClick={() => void handleCreateServer()}>
-          +
-        </button>
-        <button type="button" className="server-btn add" title="Join server" onClick={() => void handleJoin()}>
-          ↓
-        </button>
-      </aside>
+      <ServerRail
+        navMode={navMode}
+        servers={servers}
+        activeServerId={activeServer?.id || null}
+        serverUnread={serverUnread}
+        onHome={() => void selectHome()}
+        onSelectServer={(s) => void selectServer(s)}
+        onCreateServer={() => setDialog({ type: "create-server" })}
+        onJoinServer={() => setDialog({ type: "join-server" })}
+      />
 
-      <aside className="channel-panel">
-        {navMode === "home" ? (
-          <>
-            <div className="panel-head">
-              <strong>Home</strong>
-              <span className="muted">Friends & direct messages</span>
-            </div>
-            <div className="panel-scroll">
-              <div className="panel-section">
-                <div className="section-label">Direct messages</div>
-                {visibleDms.length === 0 && <p className="panel-empty">No open DMs</p>}
-                {visibleDms.map((d) => (
-                  <div key={d.id} className="nav-row">
-                    <button
-                      type="button"
-                      className={`nav-item with-avatar ${view.kind === "dm" && view.id === d.id ? "active" : ""}`}
-                      onClick={() => setView({ kind: "dm", id: d.id, title: dmTitle(d) })}
-                      onContextMenu={(e) =>
-                        openContextMenu(
-                          e,
-                          [
-                            {
-                              id: "profile",
-                              label: "View profile",
-                              disabled: !d.peer,
-                            },
-                            { id: "close", label: "Close DM", danger: true },
-                          ],
-                          (id) => {
-                            if (id === "profile" && d.peer) setProfileUser(d.peer);
-                            if (id === "close") closeDm(d.id);
-                          },
-                        )
-                      }
-                    >
-                      {d.peer ? (
-                        <AvatarImage user={d.peer} size={24} />
-                      ) : (
-                        <span className="group-dm-icon">#</span>
-                      )}
-                      <span>{dmTitle(d)}</span>
-                    </button>
-                    <button type="button" className="nav-close" title="Close DM" onClick={() => closeDm(d.id)}>
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="nav-item muted"
-                  onClick={async () => {
-                    const name = prompt("Group name");
-                    if (!name?.trim()) return;
-                    const ids = prompt("Member user IDs (comma-separated UUIDs)") || "";
-                    const memberIds = ids
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    try {
-                      const g = await createGroupDm(name.trim(), memberIds);
-                      setDms((prev) => [g, ...prev.filter((d) => d.id !== g.id)]);
-                      setView({ kind: "dm", id: g.id, title: dmTitle(g) });
-                    } catch (e) {
-                      pushToast(e instanceof Error ? e.message : "group failed", "error");
-                    }
-                  }}
-                >
-                  + New group DM
-                </button>
-              </div>
-              <div className="panel-section">
-                <div className="section-label">
-                  Friends
-                  <button type="button" onClick={() => setView({ kind: "friends" })}>
-                    All
-                  </button>
-                </div>
-                {friends.length === 0 && <p className="panel-empty">No friends yet</p>}
-                {friends.slice(0, 12).map((f) => (
-                  <button
-                    key={f.user.id}
-                    type="button"
-                    className={`nav-item with-avatar ${f.online ? "online" : ""}`}
-                    onClick={() => void handleOpenDm(f.user)}
-                    onContextMenu={(e) =>
-                      openContextMenu(
-                        e,
-                        [
-                          { id: "message", label: "Message" },
-                          { id: "profile", label: "View profile" },
-                          { id: "remove", label: "Remove friend", danger: true },
-                          { id: "block", label: "Block", danger: true },
-                        ],
-                        (id) => {
-                          if (id === "message") void handleOpenDm(f.user);
-                          if (id === "profile") setProfileUser(f.user);
-                          if (id === "remove") {
-                            void removeFriend(f.user.id).then(() => refreshFriends()).catch((err) =>
-                              pushToast(err instanceof Error ? err.message : "failed", "error"),
-                            );
-                          }
-                          if (id === "block") {
-                            void blockUser(f.user.id).then(() => refreshFriends()).catch((err) =>
-                              pushToast(err instanceof Error ? err.message : "failed", "error"),
-                            );
-                          }
-                        },
-                      )
-                    }
-                  >
-                    <AvatarImage user={f.user} size={24} />
-                    <span>
-                      {f.user.display_name}
-                      {f.online ? " · online" : ""}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="panel-head">
-              <strong>{activeServer?.name || "Server"}</strong>
-              {activeServer && (
-                <span className="invite" title="Invite code">
-                  {activeServer.invite_code}
-                </span>
-              )}
-            </div>
-            <div className="panel-scroll">
-              <div className="panel-section">
-                <div className="section-label">
-                  Text
-                  <button type="button" onClick={() => void handleAddChannel()}>
-                    +
-                  </button>
-                </div>
-                {channels
-                  .filter((c) => c.kind === "text")
-                  .map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`nav-item ${view.kind === "channel" && view.id === c.id ? "active" : ""}`}
-                      onClick={() => setView({ kind: "channel", id: c.id, title: `# ${c.name}` })}
-                      onContextMenu={(e) =>
-                        openContextMenu(
-                          e,
-                          [
-                            {
-                              id: "rename",
-                              label: "Rename channel",
-                              disabled: !canManageChannels,
-                            },
-                            {
-                              id: "delete",
-                              label: "Delete channel",
-                              danger: true,
-                              disabled: !canManageChannels,
-                            },
-                          ],
-                          (id) => {
-                            if (id === "rename") void handleRenameChannel(c);
-                            if (id === "delete") void handleDeleteChannel(c);
-                          },
-                        )
-                      }
-                    >
-                      # {c.name}
-                    </button>
-                  ))}
-              </div>
-              <div className="panel-section">
-                <div className="section-label">Voice</div>
-                {channels
-                  .filter((c) => c.kind === "voice")
-                  .map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`nav-item ${voiceChannelId === c.id ? "active" : ""}`}
-                      onClick={() => setView({ kind: "voice", id: c.id, name: c.name })}
-                      onContextMenu={(e) => {
-                        const canManageChannels =
-                          myRank === "owner" || myRank === "admin" || !!user.is_global_admin;
-                        openContextMenu(
-                          e,
-                          [
-                            {
-                              id: "rename",
-                              label: "Rename channel",
-                              disabled: !canManageChannels,
-                            },
-                            {
-                              id: "delete",
-                              label: "Delete channel",
-                              danger: true,
-                              disabled: !canManageChannels,
-                            },
-                          ],
-                          (id) => {
-                            if (id === "rename") void handleRenameChannel(c);
-                            if (id === "delete") void handleDeleteChannel(c);
-                          },
-                        );
-                      }}
-                    >
-                      ◉ {c.name}
-                      {voiceChannelId === c.id ? " · live" : ""}
-                    </button>
-                  ))}
-                {channels.filter((c) => c.kind === "voice").length === 0 && (
-                  <p className="panel-empty muted">No voice channels yet</p>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-        <div className="user-footer">
-          {voiceChannelId && (
+      <ChannelSidebar
+        navMode={navMode}
+        activeServer={activeServer}
+        channels={channels}
+        visibleDms={visibleDms}
+        friends={friends}
+        viewKind={view.kind}
+        viewId={view.kind === "channel" || view.kind === "dm" || view.kind === "voice" ? view.id : undefined}
+        voiceChannelId={voiceChannelId}
+        user={user}
+        canManageChannels={canManageChannels}
+        voiceBar={
+          voiceChannelId ? (
             <VoiceConnectedBar
               channelName={voiceChannelName}
               muted={localVoice.muted}
@@ -777,24 +525,41 @@ export function MainShell({
                 })
               }
             />
-          )}
-          <div className="user-chip-row">
-            <button type="button" className="user-chip" onClick={() => setProfileUser(user)}>
-              <AvatarImage user={user} size={32} />
-              <div>
-                <strong>
-                  {user.display_name}
-                  {user.is_global_admin && <span className="admin-badge"> GA</span>}
-                </strong>
-                <div className="muted">@{user.username}</div>
-              </div>
-            </button>
-            <button type="button" className="icon-btn sm" title="Settings" onClick={() => setView({ kind: "settings" })}>
-              ⚙
-            </button>
-          </div>
-        </div>
-      </aside>
+          ) : null
+        }
+        onOpenFriends={() => setView({ kind: "friends" })}
+        onOpenDmView={(d) => setView({ kind: "dm", id: d.id, title: dmTitle(d) })}
+        onCloseDm={closeDm}
+        onOpenFriendDm={(u) => void handleOpenDm(u)}
+        onOpenProfile={setProfileUser}
+        onNewGroupDm={() => {
+          setGroupName("");
+          setGroupSelected(new Set());
+          setDialog({ type: "group-dm" });
+        }}
+        onOpenChannel={(c) => setView({ kind: "channel", id: c.id, title: `# ${c.name}` })}
+        onOpenVoice={(c) => setView({ kind: "voice", id: c.id, name: c.name })}
+        onAddChannel={() => {
+          if (!activeServer || !canManageChannels) {
+            pushToast("Admin required to create channels", "error");
+            return;
+          }
+          setDialog({ type: "channel-name", next: "create" });
+        }}
+        onRenameChannel={(c) => setDialog({ type: "rename-channel", channel: c })}
+        onDeleteChannel={(c) => setDialog({ type: "delete-channel", channel: c })}
+        onOpenSettings={() => setView({ kind: "settings" })}
+        onRemoveFriend={(id) => {
+          void removeFriend(id)
+            .then(() => refreshFriends())
+            .catch((err) => pushToast(err instanceof Error ? err.message : "failed", "error"));
+        }}
+        onBlockFriend={(id) => {
+          void blockUser(id)
+            .then(() => refreshFriends())
+            .catch((err) => pushToast(err instanceof Error ? err.message : "failed", "error"));
+        }}
+      />
 
       <main className="main-pane">
         {view.kind === "channel" && mediaRelay && (
@@ -842,7 +607,12 @@ export function MainShell({
             localDeafened={localVoice.deafened}
             pttMode={config.push_to_talk}
             pttHeld={localVoice.pttHeld}
-            canMove={myRank === "owner" || myRank === "admin" || myRank === "moderator" || !!user.is_global_admin}
+            canMove={
+              myRank === "owner" ||
+              myRank === "admin" ||
+              myRank === "moderator" ||
+              !!user.is_global_admin
+            }
             voiceChannels={channels.filter((c) => c.kind === "voice")}
             screenSharing={voiceChannelId === view.id && screenShare.sharing}
             localScreenSharing={voiceChannelId === view.id && screenShare.localSharing}
@@ -857,8 +627,9 @@ export function MainShell({
             onStartScreenShare={() => void voiceRef.current?.startScreenShare()}
             onStopScreenShare={() => void voiceRef.current?.stopScreenShare()}
             onOpenProfile={(uid) => {
-              const peer = voicePeers.find((p) => p.user.id === uid)?.user
-                || members.find((m) => m.user.id === uid)?.user;
+              const peer =
+                voicePeers.find((p) => p.user.id === uid)?.user ||
+                members.find((m) => m.user.id === uid)?.user;
               if (peer) setProfileUser(peer);
             }}
           />
@@ -893,15 +664,7 @@ export function MainShell({
             onUser={onUser}
             onConfig={onConfig}
             onServersRefresh={() => void refreshServers()}
-            onLogout={async () => {
-              try {
-                await logoutUser();
-              } catch {
-                /* offline logout still clears local session */
-              }
-              await wipeSession();
-              onLogout();
-            }}
+            onLogout={onLogout}
           />
         )}
         {view.kind === "empty" && (
@@ -913,58 +676,19 @@ export function MainShell({
       </main>
 
       {navMode === "server" && (
-        <aside className="member-panel">
-          <div className="panel-head">
-            <strong>Members</strong>
-          </div>
-          <div className="panel-scroll">
-            {members.map((m) => (
-              <div key={m.user.id} className="member-row">
-                <button
-                  type="button"
-                  className="member-name"
-                  onClick={() => setProfileUser(m.user)}
-                  onContextMenu={(e) =>
-                    openContextMenu(
-                      e,
-                      [
-                        { id: "profile", label: "View profile" },
-                        {
-                          id: "dm",
-                          label: "Message",
-                          disabled: m.user.id === user.id,
-                        },
-                      ],
-                      (id) => {
-                        if (id === "profile") setProfileUser(m.user);
-                        if (id === "dm") void handleOpenDm(m.user);
-                      },
-                    )
-                  }
-                >
-                  <AvatarImage user={m.user} size={28} />
-                  <span>
-                    {m.user.display_name}
-                    <span className="rank">{m.rank}</span>
-                  </span>
-                </button>
-                {(myRank === "owner" || myRank === "admin") &&
-                  m.rank !== "owner" &&
-                  m.user.id !== user.id && (
-                    <select
-                      className="nc-select"
-                      value={m.rank}
-                      onChange={(e) => void handleRank(m, e.target.value as Rank)}
-                    >
-                      <option value="admin">admin</option>
-                      <option value="moderator">moderator</option>
-                      <option value="member">member</option>
-                    </select>
-                  )}
-              </div>
-            ))}
-          </div>
-        </aside>
+        <MemberPanel
+          members={members}
+          myRank={myRank}
+          localUserId={user.id}
+          onOpenProfile={setProfileUser}
+          onOpenDm={(u) => void handleOpenDm(u)}
+          onSetRank={(m, rank) => {
+            if (!activeServer) return;
+            void setMemberRank(activeServer.id, m.user.id, rank)
+              .then(async () => setMembers(await listMembers(activeServer.id)))
+              .catch((e) => pushToast(e instanceof Error ? e.message : "rank failed", "error"));
+          }}
+        />
       )}
 
       {profileUser && (
@@ -991,275 +715,183 @@ export function MainShell({
           </div>
         </div>
       )}
-      {contextMenuNode}
-    </div>
-  );
-}
 
-function SettingsView({
-  user,
-  config,
-  servers,
-  onUser,
-  onConfig,
-  onServersRefresh,
-  onLogout,
-}: {
-  user: UserPublic;
-  config: ClientConfig;
-  servers: ServerInfo[];
-  onUser: (u: UserPublic) => void;
-  onConfig?: (c: ClientConfig) => void;
-  onServersRefresh: () => void;
-  onLogout: () => void;
-}) {
-  const { pushToast } = useToast();
-  const [displayName, setDisplayName] = useState(user.display_name);
-  const [avatar, setAvatar] = useState(user.avatar_url || "");
-  const [banner, setBanner] = useState(user.banner_url || "");
-  const [adminUsers, setAdminUsers] = useState<AdminUserInfo[]>([]);
-  const [claimSecret, setClaimSecret] = useState("");
-  const [pushToTalk, setPushToTalk] = useState(config.push_to_talk);
-  const [hotkeyPtt, setHotkeyPtt] = useState(config.hotkey_push_to_talk);
-  const [hotkeyMute, setHotkeyMute] = useState(config.hotkey_mute);
-  const [hotkeyDeafen, setHotkeyDeafen] = useState(config.hotkey_deafen);
-  const [voiceSounds, setVoiceSounds] = useState(config.voice_sounds);
-
-  async function save() {
-    try {
-      const u = await updateProfile({
-        display_name: displayName,
-        avatar_url: avatar,
-        banner_url: banner,
-      });
-      onUser(u);
-      pushToast("Profile saved", "success");
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "save failed", "error");
-    }
-  }
-
-  async function loadAdmin() {
-    try {
-      setAdminUsers(await listAdminUsers());
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "admin list failed", "error");
-    }
-  }
-
-  useEffect(() => {
-    if (user.is_global_admin) void loadAdmin();
-  }, [user.is_global_admin]);
-
-  return (
-    <div className="settings app-fade">
-      <h2>Settings</h2>
-      {user.is_global_admin && <p className="admin-badge">You are Global Admin</p>}
-      <div className="settings-preview">
-        <ProfileCard
-          user={{
-            ...user,
-            display_name: displayName,
-            avatar_url: avatar || null,
-            banner_url: banner || null,
+      {dialog?.type === "create-server" && (
+        <PromptDialog
+          title="Create server"
+          label="Server name"
+          confirmLabel="Create"
+          onCancel={() => setDialog(null)}
+          onConfirm={(name) => {
+            setDialog(null);
+            void createServer(name)
+              .then(async (s) => {
+                await refreshServers();
+                await selectServer(s);
+              })
+              .catch((e) => pushToast(e instanceof Error ? e.message : "create failed", "error"));
           }}
         />
-      </div>
-      <div className="settings-grid">
-        <label>
-          Display name
-          <input className="nc-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-        </label>
-        <label>
-          Avatar URL
-          <input
-            className="nc-input"
-            value={avatar}
-            onChange={(e) => setAvatar(e.target.value)}
-            placeholder="https://… (empty = default)"
-          />
-        </label>
-        <label className="settings-span-2">
-          Banner URL
-          <input
-            className="nc-input"
-            value={banner}
-            onChange={(e) => setBanner(e.target.value)}
-            placeholder="https://… (empty = default)"
-          />
-        </label>
-        <div className="settings-span-2">
-          <button type="button" className="primary" onClick={() => void save()}>
-            Save profile
-          </button>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <h3>Claim Global Admin</h3>
-        <p className="muted">
-          Only needed when the server set <code>global_admin_bootstrap_secret</code>.
-        </p>
-        <div className="settings-grid">
-          <label className="settings-span-2">
-            Bootstrap secret
-            <input
-              className="nc-input"
-              value={claimSecret}
-              onChange={(e) => setClaimSecret(e.target.value)}
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          className="primary"
-          onClick={async () => {
-            try {
-              const u = await claimGlobalAdmin(claimSecret);
-              onUser(u);
-              pushToast("Global Admin claimed", "success");
-              void loadAdmin();
-            } catch (e) {
-              pushToast(e instanceof Error ? e.message : "claim failed", "error");
-            }
+      )}
+      {dialog?.type === "join-server" && (
+        <PromptDialog
+          title="Join server"
+          label="Invite code"
+          confirmLabel="Join"
+          onCancel={() => setDialog(null)}
+          onConfirm={(code) => {
+            setDialog(null);
+            void joinServer(code.trim())
+              .then(async (s) => {
+                await refreshServers();
+                await selectServer(s);
+              })
+              .catch((e) => pushToast(e instanceof Error ? e.message : "join failed", "error"));
           }}
-        >
-          Claim
-        </button>
-
-        {user.is_global_admin && (
-          <>
-            <h3>Global Admin - users</h3>
-            <button type="button" className="ghost sm" onClick={() => void loadAdmin()}>
-              Refresh users
+        />
+      )}
+      {dialog?.type === "channel-name" && (
+        <PromptDialog
+          title="New channel"
+          label="Channel name"
+          confirmLabel="Next"
+          onCancel={() => setDialog(null)}
+          onConfirm={(name) => setDialog({ type: "channel-kind", name })}
+        />
+      )}
+      {dialog?.type === "channel-kind" && (
+        <SelectDialog
+          title="Channel type"
+          label="Type"
+          options={[
+            { value: "text", label: "Text" },
+            { value: "voice", label: "Voice" },
+          ]}
+          defaultValue="text"
+          confirmLabel="Create"
+          onCancel={() => setDialog(null)}
+          onConfirm={(kindRaw) => {
+            const name = dialog.name;
+            setDialog(null);
+            if (!activeServer) return;
+            const kind = kindRaw === "voice" ? "voice" : "text";
+            void createChannel(activeServer.id, name, kind)
+              .then(async () => setChannels(await listChannels(activeServer.id)))
+              .catch((e) => pushToast(e instanceof Error ? e.message : "channel failed", "error"));
+          }}
+        />
+      )}
+      {dialog?.type === "rename-channel" && (
+        <PromptDialog
+          title="Rename channel"
+          label="Name"
+          defaultValue={dialog.channel.name}
+          confirmLabel="Rename"
+          onCancel={() => setDialog(null)}
+          onConfirm={(name) => {
+            const ch = dialog.channel;
+            setDialog(null);
+            if (name === ch.name) return;
+            void renameChannel(ch.id, name)
+              .then(async () => {
+                if (activeServer) setChannels(await listChannels(activeServer.id));
+                if (view.kind === "channel" && view.id === ch.id) {
+                  setView({ kind: "channel", id: ch.id, title: `# ${name}` });
+                }
+              })
+              .catch((e) => pushToast(e instanceof Error ? e.message : "rename failed", "error"));
+          }}
+        />
+      )}
+      {dialog?.type === "delete-channel" && (
+        <ConfirmDialog
+          title="Delete channel"
+          message={`Delete #${dialog.channel.name}?`}
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setDialog(null)}
+          onConfirm={() => {
+            const ch = dialog.channel;
+            setDialog(null);
+            void deleteChannel(ch.id)
+              .then(async () => {
+                if (activeServer) setChannels(await listChannels(activeServer.id));
+                if (view.kind === "channel" && view.id === ch.id) setView({ kind: "empty" });
+                if (view.kind === "voice" && view.id === ch.id) setView({ kind: "empty" });
+                if (voiceChannelId === ch.id) void leaveVoice();
+              })
+              .catch((e) => pushToast(e instanceof Error ? e.message : "delete failed", "error"));
+          }}
+        />
+      )}
+      {dialog?.type === "group-dm" && (
+        <Modal title="New group DM" onClose={() => setDialog(null)} wide>
+          <div className="nc-modal-fields">
+            <label>
+              Group name
+              <input
+                className="nc-input"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                placeholder="Friends"
+              />
+            </label>
+            <div>
+              <span className="muted">Select friends</span>
+              <div className="nc-modal-list">
+                {friends.length === 0 && <p className="muted" style={{ padding: 8 }}>No friends yet</p>}
+                {friends.map((f) => {
+                  const selected = groupSelected.has(f.user.id);
+                  return (
+                    <button
+                      key={f.user.id}
+                      type="button"
+                      className={`nc-modal-list-item${selected ? " selected" : ""}`}
+                      onClick={() => {
+                        setGroupSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.user.id)) next.delete(f.user.id);
+                          else next.add(f.user.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <input type="checkbox" readOnly checked={selected} />
+                      {f.user.display_name}
+                      <span className="muted">@{f.user.username}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="nc-modal-actions">
+            <button type="button" className="ghost" onClick={() => setDialog(null)}>
+              Cancel
             </button>
-            <ul className="admin-list">
-              {adminUsers.map((a) => (
-                <li key={a.user.id}>
-                  <button type="button" className="admin-user-btn" onClick={() => undefined}>
-                    @{a.user.username} - {a.user.display_name}
-                    {a.user.is_global_admin ? " [GA]" : ""}
-                    {a.is_banned ? " [BANNED]" : ""}
-                  </button>
-                  {!a.user.is_global_admin && a.user.id !== user.id && (
-                    <span className="admin-actions">
-                      {a.is_banned ? (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await unbanUser(a.user.id);
-                            void loadAdmin();
-                          }}
-                        >
-                          Unban
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="danger-inline"
-                          onClick={async () => {
-                            const reason = prompt("Ban reason") || "banned by global admin";
-                            await banUser(a.user.id, reason);
-                            void loadAdmin();
-                          }}
-                        >
-                          Ban
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-
-            <h3>Global Admin - servers</h3>
-            <ul className="admin-list">
-              {servers.map((s) => (
-                <li key={s.id}>
-                  <span>
-                    {s.name} ({s.invite_code})
-                  </span>
-                  <button
-                    type="button"
-                    className="danger-inline"
-                    onClick={async () => {
-                      if (!confirm(`Delete server ${s.name}?`)) return;
-                      await deleteAdminServer(s.id);
-                      onServersRefresh();
-                    }}
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-
-      <div className="settings-section">
-        <h3>Voice</h3>
-        <label className="settings-check">
-          <input
-            type="checkbox"
-            checked={pushToTalk}
-            onChange={(e) => setPushToTalk(e.target.checked)}
-          />
-          Push to talk (unchecked = open mic)
-        </label>
-        <label className="settings-check">
-          <input
-            type="checkbox"
-            checked={voiceSounds}
-            onChange={(e) => setVoiceSounds(e.target.checked)}
-          />
-          Join / leave sounds
-        </label>
-        <div className="settings-grid">
-          <label>
-            Push to talk key
-            <input className="nc-input" value={hotkeyPtt} onChange={(e) => setHotkeyPtt(e.target.value)} />
-          </label>
-          <label>
-            Mute hotkey
-            <input className="nc-input" value={hotkeyMute} onChange={(e) => setHotkeyMute(e.target.value)} />
-          </label>
-          <label>
-            Deafen hotkey
-            <input
-              className="nc-input"
-              value={hotkeyDeafen}
-              onChange={(e) => setHotkeyDeafen(e.target.value)}
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          className="ghost"
-          onClick={async () => {
-            try {
-              const next = await saveVoiceSettings({
-                push_to_talk: pushToTalk,
-                hotkey_push_to_talk: hotkeyPtt,
-                hotkey_mute: hotkeyMute,
-                hotkey_deafen: hotkeyDeafen,
-                voice_sounds: voiceSounds,
-              });
-              onConfig?.(next);
-              window.dispatchEvent(new CustomEvent("nc-voice-config", { detail: next }));
-              pushToast("Voice settings saved", "success");
-            } catch (e) {
-              pushToast(e instanceof Error ? e.message : "save failed", "error");
-            }
-          }}
-        >
-          Save voice settings
-        </button>
-      </div>
-
-      <button type="button" className="danger" onClick={() => void onLogout()}>
-        Log out
-      </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={!groupName.trim() || groupSelected.size === 0}
+              onClick={() => {
+                const name = groupName.trim();
+                const ids = [...groupSelected];
+                setDialog(null);
+                void createGroupDm(name, ids)
+                  .then((g) => {
+                    setDms((prev) => [g, ...prev.filter((d) => d.id !== g.id)]);
+                    setView({ kind: "dm", id: g.id, title: dmTitle(g) });
+                  })
+                  .catch((e) =>
+                    pushToast(e instanceof Error ? e.message : "group failed", "error"),
+                  );
+              }}
+            >
+              Create
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

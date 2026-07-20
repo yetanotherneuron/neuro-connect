@@ -215,6 +215,10 @@ pub async fn list_dms(
         .db
         .list_dms(uid)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let dms = state
+        .db
+        .attach_dm_unreads(uid, dms)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     Ok(Json(dms))
 }
 
@@ -477,4 +481,99 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
             });
         }
     }
+}
+
+pub async fn mark_channel_read(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    body: Option<Json<MarkReadRequest>>,
+) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    let channel = state
+        .db
+        .get_channel(id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "channel not found"))?;
+    require_member(&state, channel.server_id, uid)?;
+    let message_id = body.and_then(|b| b.message_id);
+    state
+        .db
+        .mark_channel_read(uid, id, message_id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn mark_dm_read(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(dm_id): Path<Uuid>,
+    body: Option<Json<MarkReadRequest>>,
+) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    if !state
+        .db
+        .is_dm_member(dm_id, uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+    {
+        return Err(api_err(StatusCode::FORBIDDEN, "not a dm member"));
+    }
+    let message_id = body.and_then(|b| b.message_id);
+    state
+        .db
+        .mark_dm_read(uid, dm_id, message_id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct SearchQueryParams {
+    pub q: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+}
+
+fn default_search_limit() -> i64 {
+    25
+}
+
+pub async fn search_channel_messages(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Query(q): Query<SearchQueryParams>,
+) -> Result<Json<Vec<MessageInfo>>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    let channel = state
+        .db
+        .get_channel(id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "channel not found"))?;
+    require_member(&state, channel.server_id, uid)?;
+    let msgs = state
+        .db
+        .search_channel_messages(id, &q.q, q.limit)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    Ok(Json(msgs))
+}
+
+pub async fn search_dm_messages(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(dm_id): Path<Uuid>,
+    Query(q): Query<SearchQueryParams>,
+) -> Result<Json<Vec<MessageInfo>>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    if !state
+        .db
+        .is_dm_member(dm_id, uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+    {
+        return Err(api_err(StatusCode::FORBIDDEN, "not a dm member"));
+    }
+    let msgs = state
+        .db
+        .search_dm_messages(dm_id, &q.q, q.limit)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    Ok(Json(msgs))
 }

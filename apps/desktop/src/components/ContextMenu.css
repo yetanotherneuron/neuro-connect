@@ -3,10 +3,10 @@
   z-index: 10000;
   min-width: 180px;
   padding: 6px;
-  background: #161622;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -25,7 +25,7 @@
 }
 
 .ctx-menu button.danger {
-  color: #fecaca;
+  color: var(--danger-soft);
 }
 
 .ctx-menu button:disabled {

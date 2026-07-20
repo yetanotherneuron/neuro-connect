@@ -18,24 +18,24 @@
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #14141e;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
   font-size: 0.9rem;
   line-height: 1.35;
   animation: toastIn 160ms ease-out;
 }
 
 .toast-error {
-  border-color: rgba(239, 68, 68, 0.45);
+  border-color: var(--danger-border);
   background: #1a1014;
 }
 
 .toast-success {
-  border-color: rgba(34, 197, 94, 0.4);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
 }
 
 .toast-info {
-  border-color: rgba(124, 58, 237, 0.45);
+  border-color: var(--accent-border);
 }
 
 .toast span {

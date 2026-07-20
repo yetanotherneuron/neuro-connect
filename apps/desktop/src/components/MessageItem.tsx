@@ -1,14 +1,19 @@
+import { useState } from "react";
 import type { MessageInfo, UserPublic } from "../lib/types";
+import { ResolveAssetUrl } from "../lib/api";
 import { AvatarImage } from "./Avatar";
 import { useContextMenu } from "./ContextMenu";
+import { EmojiPickerPopover } from "./EmojiPicker";
 import { RenderMarkdown } from "./Markdown";
-import { ResolveAssetUrl } from "../lib/api";
+import "./MessageItem.css";
 
 const QUICK_EMOJI = ["👍", "❤️", "😂", "🎉", "🔥"];
 
 export function MessageItem({
   message,
   meId,
+  grouped,
+  highlighted,
   canDelete,
   onDelete,
   onEdit,
@@ -17,6 +22,8 @@ export function MessageItem({
 }: {
   message: MessageInfo;
   meId: string;
+  grouped?: boolean;
+  highlighted?: boolean;
   canDelete: boolean;
   onDelete: () => void;
   onEdit: () => void;
@@ -29,10 +36,12 @@ export function MessageItem({
   });
   const { openContextMenu, contextMenuNode } = useContextMenu();
   const isMine = message.author.id === meId;
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div
-      className="msg"
+      id={`msg-${message.id}`}
+      className={`msg${grouped ? " grouped" : ""}${highlighted ? " msg-highlight" : ""}`}
       onContextMenu={(e) =>
         openContextMenu(
           e,
@@ -51,18 +60,61 @@ export function MessageItem({
         )
       }
     >
-      <button type="button" className="msg-avatar-btn" onClick={() => onOpenProfile?.(message.author)}>
-        <AvatarImage user={message.author} size={36} />
-      </button>
-      <div className="msg-body">
-        <div className="msg-meta">
-          <button type="button" className="msg-name" onClick={() => onOpenProfile?.(message.author)}>
-            <strong>{message.author.display_name}</strong>
+      <div className="msg-avatar-slot">
+        {!grouped && (
+          <button
+            type="button"
+            className="msg-avatar-btn"
+            onClick={() => onOpenProfile?.(message.author)}
+          >
+            <AvatarImage user={message.author} size={36} />
           </button>
-          <span className="msg-user">@{message.author.username}</span>
-          <span className="msg-time">{time}</span>
-          {message.edited_at && <span className="msg-edited">(edited)</span>}
+        )}
+      </div>
+      <div className="msg-body">
+        <div className="msg-toolbar">
+          {QUICK_EMOJI.slice(0, 3).map((e) => (
+            <button key={e} type="button" title={e} onClick={() => onReact(e)}>
+              {e}
+            </button>
+          ))}
+          <button type="button" title="More emoji" onClick={() => setPickerOpen((v) => !v)}>
+            +
+          </button>
+          {isMine && (
+            <button type="button" title="Edit" onClick={onEdit}>
+              ✎
+            </button>
+          )}
+          {canDelete && (
+            <button type="button" className="danger" title="Delete" onClick={onDelete}>
+              ×
+            </button>
+          )}
         </div>
+        {pickerOpen && (
+          <EmojiPickerPopover
+            onPick={(emoji) => {
+              onReact(emoji);
+              setPickerOpen(false);
+            }}
+            onClose={() => setPickerOpen(false)}
+          />
+        )}
+        {!grouped && (
+          <div className="msg-meta">
+            <button
+              type="button"
+              className="msg-name"
+              onClick={() => onOpenProfile?.(message.author)}
+            >
+              <strong>{message.author.display_name}</strong>
+            </button>
+            <span className="msg-user">@{message.author.username}</span>
+            <span className="msg-time">{time}</span>
+            {message.edited_at && <span className="msg-edited">(edited)</span>}
+          </div>
+        )}
         {message.content && <RenderMarkdown content={message.content} />}
         {message.attachment_url && (
           <a
@@ -87,10 +139,24 @@ export function MessageItem({
           ))}
           <div className="msg-react-quick">
             {QUICK_EMOJI.map((e) => (
-              <button key={e} type="button" className="msg-react-add" onClick={() => onReact(e)} title={e}>
+              <button
+                key={e}
+                type="button"
+                className="msg-react-add"
+                onClick={() => onReact(e)}
+                title={e}
+              >
                 {e}
               </button>
             ))}
+            <button
+              type="button"
+              className="msg-react-add"
+              title="More"
+              onClick={() => setPickerOpen(true)}
+            >
+              +
+            </button>
           </div>
         </div>
       </div>

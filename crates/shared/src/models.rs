@@ -103,6 +103,8 @@ pub struct ChannelInfo {
     pub name: String,
     pub kind: ChannelKind,
     pub position: i32,
+    #[serde(default)]
+    pub unread_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +143,25 @@ pub struct DmThread {
     #[serde(default)]
     pub members: Vec<UserPublic>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub unread_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkReadRequest {
+    #[serde(default)]
+    pub message_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+}
+
+fn default_search_limit() -> i64 {
+    25
 }
 
 fn default_dm_kind() -> String {

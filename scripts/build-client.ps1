@@ -2,7 +2,7 @@ param(
   [ValidateSet("beta", "release")]
   [string]$Channel = "beta",
   [string]$ServerUrl = "",
-  [string]$Version = "0.1.0"
+  [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +11,16 @@ Set-Location $root
 
 if ($Channel -eq "release" -and [string]::IsNullOrWhiteSpace($ServerUrl)) {
   throw "Release builds require -ServerUrl (e.g. https://chat.example.com)"
+}
+
+# Prefer explicit -Version; otherwise read from package.json / tauri.conf.
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $pkgPath = Join-Path $root "apps\desktop\package.json"
+  $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+  $Version = [string]$pkg.version
+  if ([string]::IsNullOrWhiteSpace($Version)) {
+    throw "Could not determine app version from apps/desktop/package.json"
+  }
 }
 
 $env:NEURO_CHANNEL = $Channel
@@ -24,6 +34,11 @@ $identifier = if ($Channel -eq "release") {
   "com.yetanotherneuron.neuroconnect.beta"
 }
 
+function Write-Utf8NoBom([string]$Path, [string]$Content) {
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllText($Path, $Content, $utf8)
+}
+
 $tauriConf = Join-Path $root "apps\desktop\src-tauri\tauri.conf.json"
 $backup = "$tauriConf.bak"
 Copy-Item $tauriConf $backup -Force
@@ -33,9 +48,10 @@ try {
   $json.identifier = $identifier
   $json.version = $Version
   $json.app.windows[0].title = $productName
-  ($json | ConvertTo-Json -Depth 20) | Set-Content $tauriConf -Encoding UTF8
+  # PowerShell's Set-Content -Encoding UTF8 writes a BOM that breaks Tauri's JSON parser.
+  Write-Utf8NoBom $tauriConf (($json | ConvertTo-Json -Depth 20) + "`n")
 
-  Write-Host "Building $productName (channel=$Channel)..."
+  Write-Host "Building $productName (channel=$Channel, version=$Version)..."
   Push-Location (Join-Path $root "apps\desktop")
   npm install
   npm run tauri build

@@ -21,6 +21,7 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 | Friends (requests / block / presence) | server + desktop | Live |
 | Group DMs | server + desktop | Live |
 | Message edit + reactions | server + desktop | Live |
+| Emoji picker + unread + message search | desktop + server | Live |
 | LAN mDNS + Game Host board | server + desktop | Live |
 | Goldberg Steam LAN helper | desktop | Live (import release) |
 | Goldberg Steam LAN helper | desktop | Live (import release) |
@@ -69,11 +70,13 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 - **Game Host board** - share a **room code** for LAN / Steam-LAN (Goldberg) co-op
 - **Goldberg helper** - import emu once, prepare game folder, auto `custom_broadcasts` on join
 - **Friends** - requests, accept/decline, block, ignore, online presence
+- Message edit, reactions, and full emoji picker
+- Unread indicators and in-chat message search
 - File uploads up to 12 MB (paste links for larger files)
 - DMs where either participant can delete messages
 - **Beta builds** with selectable Server URL; **Release builds** locked to a baked VPS URL
 - **Self-hosted auto-update** via the same neuro-server (not GitHub)
-- Dark UI (black + purple accents)
+- Dark UI (black + purple accents); cleaned shell layout in 0.3+
 
 ## License
 

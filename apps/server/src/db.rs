@@ -220,6 +220,21 @@ impl Database {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_game_hosts_room_code ON game_hosts(room_code) WHERE room_code != ''",
             [],
         );
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS read_states (
+                user_id TEXT NOT NULL,
+                channel_id TEXT NOT NULL DEFAULT '',
+                dm_id TEXT NOT NULL DEFAULT '',
+                last_read_message_id TEXT,
+                last_read_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, channel_id, dm_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_read_states_user ON read_states(user_id);
+            "#,
+        )?;
+
         // Backfill room codes for hosts created before 0.2.0.
         if let Ok(mut stmt) =
             conn.prepare("SELECT id FROM game_hosts WHERE room_code IS NULL OR room_code = ''")
@@ -537,6 +552,7 @@ impl Database {
                 kind: ChannelKind::from_str_kind(&r.get::<_, String>(3)?)
                     .unwrap_or(ChannelKind::Text),
                 position: r.get(4)?,
+                unread_count: 0,
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
@@ -573,6 +589,7 @@ impl Database {
             name: name.to_string(),
             kind,
             position,
+            unread_count: 0,
         })
     }
 
@@ -590,6 +607,7 @@ impl Database {
                         kind: ChannelKind::from_str_kind(&r.get::<_, String>(3)?)
                             .unwrap_or(ChannelKind::Text),
                         position: r.get(4)?,
+                        unread_count: 0,
                     })
                 },
             )
@@ -1115,6 +1133,7 @@ impl Database {
             updated_at: chrono::DateTime::parse_from_rfc3339(&updated)
                 .unwrap()
                 .with_timezone(&Utc),
+            unread_count: 0,
         }))
     }
 
@@ -1165,22 +1184,38 @@ impl Database {
 
     pub fn is_user_banned(&self, id: Uuid) -> anyhow::Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let banned: i64 = conn.query_row(
-            "SELECT is_banned FROM users WHERE id=?1",
+        let banned: Option<i64> = conn
+            .query_row(
+                "SELECT is_banned FROM users WHERE id=?1",
+                params![id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // Missing user: treat as banned so auth fails closed (caller maps to 401).
+        Ok(banned.map(|b| b != 0).unwrap_or(true))
+    }
+
+    /// Returns `Ok(None)` when the user id is unknown (stale token / wiped DB).
+    pub fn user_exists(&self, id: Uuid) -> anyhow::Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE id=?1",
             params![id.to_string()],
             |r| r.get(0),
         )?;
-        Ok(banned != 0)
+        Ok(n > 0)
     }
 
     pub fn is_global_admin(&self, id: Uuid) -> anyhow::Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let flag: i64 = conn.query_row(
-            "SELECT is_global_admin FROM users WHERE id=?1",
-            params![id.to_string()],
-            |r| r.get(0),
-        )?;
-        Ok(flag != 0)
+        let flag: Option<i64> = conn
+            .query_row(
+                "SELECT is_global_admin FROM users WHERE id=?1",
+                params![id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(flag.map(|f| f != 0).unwrap_or(false))
     }
 
     pub fn set_global_admin(&self, id: Uuid, enabled: bool) -> anyhow::Result<()> {
@@ -1708,11 +1743,16 @@ impl Database {
         addressee: Uuid,
     ) -> anyhow::Result<UserPublic> {
         let conn = self.conn.lock().unwrap();
-        let row: (String, String, String) = conn.query_row(
-            "SELECT requester_id, addressee_id, status FROM friendships WHERE id=?1",
-            params![request_id.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
+        let row: Option<(String, String, String)> = conn
+            .query_row(
+                "SELECT requester_id, addressee_id, status FROM friendships WHERE id=?1",
+                params![request_id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some(row) = row else {
+            anyhow::bail!("friend request not found");
+        };
         let requester = Uuid::parse_str(&row.0)?;
         let addr = Uuid::parse_str(&row.1)?;
         if addr != addressee {
@@ -1737,11 +1777,16 @@ impl Database {
         actor: Uuid,
     ) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
-        let row: (String, String, String) = conn.query_row(
-            "SELECT requester_id, addressee_id, status FROM friendships WHERE id=?1",
-            params![request_id.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?;
+        let row: Option<(String, String, String)> = conn
+            .query_row(
+                "SELECT requester_id, addressee_id, status FROM friendships WHERE id=?1",
+                params![request_id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some(row) = row else {
+            anyhow::bail!("friend request not found");
+        };
         let requester = Uuid::parse_str(&row.0)?;
         let addressee = Uuid::parse_str(&row.1)?;
         if actor != requester && actor != addressee {
@@ -1961,6 +2006,297 @@ impl Database {
             |r| r.get(0),
         )?;
         Ok(n > 0)
+    }
+
+    pub fn channel_unread_count(&self, user_id: Uuid, channel_id: Uuid) -> anyhow::Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let last_read: Option<String> = conn
+            .query_row(
+                "SELECT last_read_message_id FROM read_states WHERE user_id=?1 AND channel_id=?2 AND dm_id=''",
+                params![user_id.to_string(), channel_id.to_string()],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .filter(|s| !s.is_empty());
+        let count = if let Some(mid) = last_read {
+            let created: Option<String> = conn
+                .query_row(
+                    "SELECT created_at FROM messages WHERE id=?1",
+                    params![mid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(ts) = created {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE channel_id=?1 AND created_at > ?2 AND author_id != ?3",
+                    params![channel_id.to_string(), ts, user_id.to_string()],
+                    |r| r.get(0),
+                )?
+            } else {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE channel_id=?1 AND author_id != ?2",
+                    params![channel_id.to_string(), user_id.to_string()],
+                    |r| r.get(0),
+                )?
+            }
+        } else {
+            conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE channel_id=?1 AND author_id != ?2",
+                params![channel_id.to_string(), user_id.to_string()],
+                |r| r.get(0),
+            )?
+        };
+        Ok(count)
+    }
+
+    pub fn dm_unread_count(&self, user_id: Uuid, dm_id: Uuid) -> anyhow::Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let last_read: Option<String> = conn
+            .query_row(
+                "SELECT last_read_message_id FROM read_states WHERE user_id=?1 AND dm_id=?2 AND channel_id=''",
+                params![user_id.to_string(), dm_id.to_string()],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .filter(|s| !s.is_empty());
+        let count = if let Some(mid) = last_read {
+            let created: Option<String> = conn
+                .query_row(
+                    "SELECT created_at FROM messages WHERE id=?1",
+                    params![mid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(ts) = created {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE dm_id=?1 AND created_at > ?2 AND author_id != ?3",
+                    params![dm_id.to_string(), ts, user_id.to_string()],
+                    |r| r.get(0),
+                )?
+            } else {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE dm_id=?1 AND author_id != ?2",
+                    params![dm_id.to_string(), user_id.to_string()],
+                    |r| r.get(0),
+                )?
+            }
+        } else {
+            conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE dm_id=?1 AND author_id != ?2",
+                params![dm_id.to_string(), user_id.to_string()],
+                |r| r.get(0),
+            )?
+        };
+        Ok(count)
+    }
+
+    pub fn attach_channel_unreads(
+        &self,
+        user_id: Uuid,
+        mut channels: Vec<ChannelInfo>,
+    ) -> anyhow::Result<Vec<ChannelInfo>> {
+        for ch in &mut channels {
+            if ch.kind == ChannelKind::Text {
+                ch.unread_count = self.channel_unread_count(user_id, ch.id)?;
+            }
+        }
+        Ok(channels)
+    }
+
+    pub fn attach_dm_unreads(
+        &self,
+        user_id: Uuid,
+        mut dms: Vec<DmThread>,
+    ) -> anyhow::Result<Vec<DmThread>> {
+        for d in &mut dms {
+            d.unread_count = self.dm_unread_count(user_id, d.id)?;
+        }
+        Ok(dms)
+    }
+
+    pub fn mark_channel_read(
+        &self,
+        user_id: Uuid,
+        channel_id: Uuid,
+        message_id: Option<Uuid>,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let mid = if let Some(id) = message_id {
+            id.to_string()
+        } else {
+            conn.query_row(
+                "SELECT id FROM messages WHERE channel_id=?1 ORDER BY created_at DESC LIMIT 1",
+                params![channel_id.to_string()],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_default()
+        };
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO read_states (user_id, channel_id, dm_id, last_read_message_id, last_read_at)
+             VALUES (?1, ?2, '', ?3, ?4)
+             ON CONFLICT(user_id, channel_id, dm_id) DO UPDATE SET
+               last_read_message_id=excluded.last_read_message_id,
+               last_read_at=excluded.last_read_at",
+            params![user_id.to_string(), channel_id.to_string(), mid, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_dm_read(
+        &self,
+        user_id: Uuid,
+        dm_id: Uuid,
+        message_id: Option<Uuid>,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let mid = if let Some(id) = message_id {
+            id.to_string()
+        } else {
+            conn.query_row(
+                "SELECT id FROM messages WHERE dm_id=?1 ORDER BY created_at DESC LIMIT 1",
+                params![dm_id.to_string()],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_default()
+        };
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO read_states (user_id, channel_id, dm_id, last_read_message_id, last_read_at)
+             VALUES (?1, '', ?2, ?3, ?4)
+             ON CONFLICT(user_id, channel_id, dm_id) DO UPDATE SET
+               last_read_message_id=excluded.last_read_message_id,
+               last_read_at=excluded.last_read_at",
+            params![user_id.to_string(), dm_id.to_string(), mid, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_channel_messages(
+        &self,
+        channel_id: Uuid,
+        query: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<MessageInfo>> {
+        let q = format!("%{}%", query.trim());
+        if q == "%%" {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at
+             FROM messages WHERE channel_id=?1 AND content LIKE ?2 COLLATE NOCASE
+             ORDER BY created_at DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![channel_id.to_string(), q, limit.clamp(1, 50)],
+            |r| {
+                Ok((
+                    Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    Uuid::parse_str(&r.get::<_, String>(3)?).unwrap(),
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                ))
+            },
+        )?;
+        let collected: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+        drop(stmt);
+        drop(conn);
+        let mut out = Vec::new();
+        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited) in collected
+        {
+            let Some(author) = self.get_user(author_id)? else {
+                continue;
+            };
+            out.push(MessageInfo {
+                id,
+                channel_id: channel_id.and_then(|s| Uuid::parse_str(&s).ok()),
+                dm_id: dm_id.and_then(|s| Uuid::parse_str(&s).ok()),
+                author,
+                content,
+                attachment_url: att_url,
+                attachment_name: att_name,
+                created_at: chrono::DateTime::parse_from_rfc3339(&created)
+                    .unwrap()
+                    .with_timezone(&Utc),
+                edited_at: edited.and_then(|e| {
+                    chrono::DateTime::parse_from_rfc3339(&e)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                reactions: vec![],
+            });
+        }
+        Ok(out)
+    }
+
+    pub fn search_dm_messages(
+        &self,
+        dm_id: Uuid,
+        query: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<MessageInfo>> {
+        let q = format!("%{}%", query.trim());
+        if q == "%%" {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at
+             FROM messages WHERE dm_id=?1 AND content LIKE ?2 COLLATE NOCASE
+             ORDER BY created_at DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![dm_id.to_string(), q, limit.clamp(1, 50)], |r| {
+            Ok((
+                Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                Uuid::parse_str(&r.get::<_, String>(3)?).unwrap(),
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, Option<String>>(8)?,
+            ))
+        })?;
+        let collected: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+        drop(stmt);
+        drop(conn);
+        let mut out = Vec::new();
+        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited) in collected
+        {
+            let Some(author) = self.get_user(author_id)? else {
+                continue;
+            };
+            out.push(MessageInfo {
+                id,
+                channel_id: channel_id.and_then(|s| Uuid::parse_str(&s).ok()),
+                dm_id: dm_id.and_then(|s| Uuid::parse_str(&s).ok()),
+                author,
+                content,
+                attachment_url: att_url,
+                attachment_name: att_name,
+                created_at: chrono::DateTime::parse_from_rfc3339(&created)
+                    .unwrap()
+                    .with_timezone(&Utc),
+                edited_at: edited.and_then(|e| {
+                    chrono::DateTime::parse_from_rfc3339(&e)
+                        .ok()
+                        .map(|d| d.with_timezone(&Utc))
+                }),
+                reactions: vec![],
+            });
+        }
+        Ok(out)
     }
 }
 

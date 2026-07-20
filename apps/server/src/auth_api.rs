@@ -21,6 +21,13 @@ pub fn extract_user_id(
         .ok_or_else(|| api_err(StatusCode::UNAUTHORIZED, "invalid authorization"))?;
     let uid = parse_token(token, &state.cfg.jwt_secret)
         .map_err(|_| api_err(StatusCode::UNAUTHORIZED, "invalid token"))?;
+    let exists = state
+        .db
+        .user_exists(uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    if !exists {
+        return Err(api_err(StatusCode::UNAUTHORIZED, "session expired"));
+    }
     require_not_banned(state, uid)?;
     Ok(uid)
 }

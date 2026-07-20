@@ -121,6 +121,10 @@ pub async fn list_channels(
         .db
         .list_channels(id)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let channels = state
+        .db
+        .attach_channel_unreads(uid, channels)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     Ok(Json(channels))
 }
 
