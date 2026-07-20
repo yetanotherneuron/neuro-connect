@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug neuro-server",
+      "cargo": {
+        "args": ["build", "-p", "neuro-server", "--bin", "neuro-server"],
+        "filter": {
+          "name": "neuro-server",
+          "kind": "bin"
+        }
+      },
+      "args": ["server.toml"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "info"
+      }
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Desktop (tauri dev)",
+      "command": "npm run tauri dev",
+      "cwd": "${workspaceFolder}/apps/desktop"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Server + Desktop",
+      "configurations": ["Debug neuro-server", "Desktop (tauri dev)"],
+      "stopAll": true
+    }
+  ]
+}

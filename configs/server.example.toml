@@ -1,0 +1,69 @@
+# Neuro Connect Server Configuration
+# Copy this file to server.toml and edit the values below.
+# Lines starting with # are comments and are ignored.
+
+# Network address the server listens on.
+# Examples:
+#   "127.0.0.1:7420"  - only this computer can connect (safest for testing)
+#   "0.0.0.0:7420"    - allow connections from your LAN / internet (use a firewall)
+bind = "0.0.0.0:7420"
+
+# Where the server database file is stored.
+# Relative paths are relative to the folder you launch the server from.
+database_path = "data/neuro-server.db"
+
+# Folder for uploaded files (max ~12 MB each).
+upload_dir = "data/uploads"
+
+# Secret used to sign login tokens.
+# IMPORTANT: Change this to a long random string before hosting publicly.
+# Example: generate one with: openssl rand -hex 32
+jwt_secret = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
+
+# How long a login stays valid, in hours (default 168 = 7 days).
+token_ttl_hours = 168
+
+# Maximum upload size in megabytes (10-12 recommended).
+max_upload_mb = 12
+
+# Optional public URL clients should use (shown in logs / invite helpers).
+# Leave empty to auto-detect from bind address.
+public_url = ""
+
+# ---------------------------------------------------------------------------
+# Global Admin Mode
+# ---------------------------------------------------------------------------
+# One special username with full power across ALL communities on this server:
+# access any channel, delete any message, ban users, manage every server.
+#
+# Leave empty ("") to disable Global Admin Mode entirely.
+# Username rules are the same as normal accounts (English letters/numbers/_).
+global_admin_username = "neuroowner"
+
+# Optional one-time secret for safer elevation.
+# If this is NOT empty, the matching user must call POST /api/admin/claim
+# with { "bootstrap_secret": "..." } once before Global Admin activates.
+# If empty, matching username is auto-elevated on register/login
+# (fine for private hosts - do NOT leave empty on a public internet host
+# unless you trust who can register that username first).
+global_admin_bootstrap_secret = ""
+
+# ---------------------------------------------------------------------------
+# Test / Development Mode
+# ---------------------------------------------------------------------------
+# Use ONLY on your own computer. Never turn this on for a public server.
+#
+# When true:
+#   - Warns if bind is not localhost
+#   - Seeds demo users (devuser / devpass12) and a demo server if the DB is empty
+#   - Stub voice / LAN / media endpoints return richer mock data for UI testing
+#   - Clients can show a "Dev Mode" banner via GET /api/meta
+dev_mode = false
+
+# ---------------------------------------------------------------------------
+# LAN discovery (mDNS)
+# ---------------------------------------------------------------------------
+# When true and bind is not loopback, advertise `_neuroconnect._tcp` so Beta
+# clients can use "Find on LAN" without typing an IP.
+lan_discovery = true
+lan_service_name = "Neuro Connect"

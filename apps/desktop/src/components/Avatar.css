@@ -1,0 +1,33 @@
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.profile-card {
+  width: 280px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.profile-banner {
+  height: 72px;
+  background-size: cover;
+  background-position: center;
+}
+
+.profile-body {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px 16px;
+  align-items: flex-end;
+  margin-top: -28px;
+}
+
+.profile-avatar {
+  border: 4px solid var(--bg-elevated);
+}

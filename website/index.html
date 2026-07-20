@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Neuro Connect — Self-hosted voice &amp; text chat</title>
+    <meta
+      name="description"
+      content="Self-hosted, lightweight, privacy-first voice &amp; text chat for friends. Discord-like experience with strong LAN/offline support."
+    />
+    <link rel="icon" href="assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-nav">
+      <a class="nav-brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Neuro Connect</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#download">Download</a>
+        <a id="nav-github" href="https://github.com/yetanotherneuron/neuro-connect" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-bg" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <div class="hero-brand">
+            <span class="brand-mark brand-mark-lg" aria-hidden="true"></span>
+            <h1>Neuro Connect</h1>
+          </div>
+          <p class="hero-tagline">
+            Lightweight communities. Private by default. Works offline on your LAN.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#download" id="hero-download">Download Beta</a>
+            <a
+              class="btn btn-ghost"
+              id="hero-github"
+              href="https://github.com/yetanotherneuron/neuro-connect"
+              rel="noopener"
+              >View on GitHub</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="about">
+        <div class="section-inner">
+          <h2>What it is</h2>
+          <p class="section-lead">
+            Self-hosted, lightweight, privacy-first voice &amp; text chat for friends. A Discord-like
+            experience with strong LAN/offline support, server-side media streaming, and low resource
+            usage — built with Tauri + Rust.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="section-inner">
+          <h2>Features</h2>
+          <p class="section-lead">Everything you need for a private community — without the cloud lock-in.</p>
+          <ul class="feature-list">
+            <li>
+              <strong>Text chat</strong>
+              <span>Markdown, spoilers, code highlighting, uploads, and DMs.</span>
+            </li>
+            <li>
+              <strong>Voice rooms</strong>
+              <span>WebRTC mesh with Opus, push-to-talk or open mic, mute and deafen.</span>
+            </li>
+            <li>
+              <strong>LAN discovery</strong>
+              <span>Find servers on your network with mDNS — no public internet required.</span>
+            </li>
+            <li>
+              <strong>Game Host board</strong>
+              <span>Share co-op IP:port with friends so everyone can join the same lobby.</span>
+            </li>
+            <li>
+              <strong>Beta &amp; Release channels</strong>
+              <span>Beta lets you enter any server IP; Release locks to a baked community URL.</span>
+            </li>
+            <li>
+              <strong>Self-hosted updates</strong>
+              <span>Your neuro-server can publish client installers — no forced third-party store.</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="how">
+        <div class="section-inner">
+          <h2>How it works</h2>
+          <p class="section-lead">Three steps from zero to chatting with friends.</p>
+          <ol class="steps">
+            <li>
+              <strong>Host a server</strong>
+              <span
+                >Run <code>neuro-server</code> on a PC or VPS. A public IP is enough — no domain
+                required.</span
+              >
+            </li>
+            <li>
+              <strong>Install the client</strong>
+              <span>Friends download Neuro Connect Beta (or Release) for Windows or Linux.</span>
+            </li>
+            <li>
+              <strong>Connect</strong>
+              <span
+                >Enter <code>http://YOUR_IP:7420</code>, or use Find on LAN when you’re on the same
+                network.</span
+              >
+            </li>
+          </ol>
+          <p class="docs-link">
+            Full guide:
+            <a
+              id="docs-vps"
+              href="https://github.com/yetanotherneuron/neuro-connect/blob/main/docs/VPS_HOSTING.md"
+              rel="noopener"
+              >VPS hosting (public IP, no domain)</a
+            >
+          </p>
+        </div>
+      </section>
+
+      <section class="section screenshots-section" id="screenshots">
+        <div class="section-inner">
+          <h2>Screenshots</h2>
+          <p class="section-lead">A peek at the dark UI — black surfaces, purple accents.</p>
+        </div>
+        <div class="screenshot-plane">
+          <figure class="screenshot-frame">
+            <img
+              src="assets/screenshots/chat.svg"
+              alt="Neuro Connect chat interface placeholder"
+              width="1280"
+              height="720"
+            />
+            <figcaption>Text chat &amp; communities</figcaption>
+          </figure>
+          <figure class="screenshot-frame">
+            <img
+              src="assets/screenshots/voice.svg"
+              alt="Neuro Connect voice room placeholder"
+              width="1280"
+              height="720"
+            />
+            <figcaption>Voice rooms</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section download-section" id="download">
+        <div class="section-inner">
+          <h2>Download</h2>
+          <p class="section-lead">
+            <strong>Beta is recommended</strong> for most users — you can enter any friend’s server
+            IP or URL at login. Release builds connect only to a fixed community server baked at
+            compile time.
+          </p>
+
+          <div class="channel-toggle" role="group" aria-label="Build channel">
+            <button type="button" class="channel-btn is-active" data-channel="beta" id="channel-beta">
+              Beta
+              <span class="channel-badge">Recommended</span>
+            </button>
+            <button type="button" class="channel-btn" data-channel="release" id="channel-release">
+              Release
+            </button>
+          </div>
+
+          <p class="platform-hint" id="platform-hint">Detected platform: …</p>
+          <p class="channel-note" id="channel-note"></p>
+
+          <div class="download-actions">
+            <button type="button" class="btn btn-primary btn-lg" id="btn-direct">
+              Direct download (Beta)
+            </button>
+            <a
+              class="btn btn-ghost btn-lg"
+              id="btn-github"
+              href="https://github.com/yetanotherneuron/neuro-connect/releases"
+              rel="noopener"
+              >GitHub Releases</a
+            >
+          </div>
+          <p class="download-status muted" id="download-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <strong>Neuro Connect</strong>
+            <p class="muted">
+              Self-hosted, lightweight, privacy-first voice &amp; text chat for friends.
+            </p>
+          </div>
+        </div>
+        <div class="footer-links">
+          <a id="footer-github" href="https://github.com/yetanotherneuron/neuro-connect" rel="noopener"
+            >GitHub</a
+          >
+          <a href="https://t.me/yetanotherneuron" rel="noopener">Telegram</a>
+          <a
+            id="footer-license"
+            href="https://github.com/yetanotherneuron/neuro-connect/blob/main/LICENSE"
+            rel="noopener"
+            >MIT License</a
+          >
+        </div>
+      </div>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="main.js"></script>
+  </body>
+</html>

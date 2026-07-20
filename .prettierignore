@@ -1,0 +1,12 @@
+target
+**/node_modules
+**/dist
+data
+third-party
+*.lock
+Cargo.lock
+package-lock.json
+*.rs
+*.md
+!README.md
+apps/desktop/src-tauri

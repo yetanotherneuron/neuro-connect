@@ -1,0 +1,40 @@
+# Neuro Connect Desktop Client Configuration
+# Copy this file next to the app or into your user config folder as client.toml.
+
+# Default Neuro Connect server to connect to.
+# Use the IP or hostname of whoever is hosting neuro-server.
+# Examples:
+#   "http://127.0.0.1:7420"     - local test server on this PC
+#   "http://192.168.1.50:7420"  - a server on your home network
+server_url = "http://127.0.0.1:7420"
+
+# Where the client stores its local cache (messages, session, settings).
+# Leave empty to use the OS default app data folder.
+database_path = ""
+
+# Start the app minimized to the tray (true/false). Feature reserved for later.
+start_minimized = false
+
+# Voice settings
+# push_to_talk = true means hold a key to speak; false means open mic.
+push_to_talk = true
+
+# Hotkey strings - customize in Settings. Examples: "V", "Ctrl+Shift+M"
+hotkey_push_to_talk = "V"
+hotkey_mute = "Ctrl+Shift+M"
+hotkey_deafen = "Ctrl+Shift+D"
+
+# Play sounds when someone joins/leaves voice.
+voice_sounds = true
+
+# Optional extra ICE servers for voice (beyond default public STUN).
+# Example TURN: "turn:username:password@turn.example.com:3478"
+ice_servers = []
+
+# Prefer external image URLs for avatars/banners (saves server disk).
+prefer_external_images = true
+
+# When true, the UI prefers localhost defaults and shows extra Dev Mode labels
+# after the server reports dev_mode via GET /api/meta.
+# Does not skip login - it only helps local testing and debugging.
+dev_mode_ui = true

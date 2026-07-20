@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  server-linux:
+    name: Server (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p neuro-server --release
+      - name: Package
+        run: |
+          mkdir -p out
+          cp target/release/neuro-server out/
+          cp configs/server.example.toml out/server.example.toml
+          tar -czf neuro-server-linux-x64.tar.gz -C out .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: neuro-server-linux-x64.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  server-windows:
+    name: Server (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p neuro-server -p neuro-host --release
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item target/release/neuro-server.exe out/
+          Copy-Item target/release/neuro-host.exe out/Neuro-Server-Beta.exe
+          Copy-Item configs/server.example.toml out/server.example.toml
+          Compress-Archive -Path out/* -DestinationPath neuro-server-windows-x64.zip -Force
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: neuro-server-windows-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

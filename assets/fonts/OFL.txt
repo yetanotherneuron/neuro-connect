@@ -1,0 +1,2 @@
+/// Font license: Outfit and JetBrains Mono are SIL Open Font License 1.1.
+/// Sources: https://github.com/google/fonts (ofl/outfit, ofl/jetbrainsmono)
