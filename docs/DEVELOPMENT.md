@@ -59,7 +59,9 @@ npm run tauri dev
 | `GET /api/voice/status` | Live voice rooms |
 | `GET /api/updates/latest?channel=beta&platform=windows-x64` | Latest client update manifest |
 | `GET /api/lan/status` | Mock peers when `dev_mode` |
-| `GET /api/media/status` | Mock stream when `dev_mode` |
-| `GET /api/dev/whoami` | Debug identity (dev_mode only) |
+| `GET /api/media/status` | Active media URL relay |
+| `POST /api/media/start` | Start streaming a direct media URL via the server |
+| `POST /api/media/stop` | Stop the active relay |
+| `GET /api/media/stream/{id}` | Proxied media bytes |
 
-LAN discovery and media URL relay remain stubs / roadmap. Voice + screen share use WebRTC in the WebView with server signaling on `/api/ws` (see [VOICE.md](VOICE.md)).
+LAN discovery remains optional. Voice + screen share + media relay use `/api/ws` and HTTP as documented in [VOICE.md](VOICE.md) / [SERVER_SETUP.md](SERVER_SETUP.md).

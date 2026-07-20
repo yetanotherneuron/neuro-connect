@@ -25,8 +25,14 @@ impl ServerState {
             let candidates = [
                 self.root.join("bin").join("neuro-server.exe"),
                 self.root.join("neuro-server.exe"),
-                self.root.join("target").join("release").join("neuro-server.exe"),
-                self.root.join("target").join("debug").join("neuro-server.exe"),
+                self.root
+                    .join("target")
+                    .join("release")
+                    .join("neuro-server.exe"),
+                self.root
+                    .join("target")
+                    .join("debug")
+                    .join("neuro-server.exe"),
             ];
             for c in &candidates {
                 if c.exists() {
@@ -40,7 +46,10 @@ impl ServerState {
             let candidates = [
                 self.root.join("bin").join("neuro-server"),
                 self.root.join("neuro-server"),
-                self.root.join("target").join("release").join("neuro-server"),
+                self.root
+                    .join("target")
+                    .join("release")
+                    .join("neuro-server"),
                 self.root.join("target").join("debug").join("neuro-server"),
             ];
             for c in &candidates {
@@ -87,14 +96,19 @@ impl ServerState {
             .current_dir(&self.root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .env("RUST_LOG", std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
+            .env(
+                "RUST_LOG",
+                std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+            );
 
-        let mut child = cmd.spawn().with_context(|| format!("spawn {}", bin.display()))?;
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("spawn {}", bin.display()))?;
 
         if let Some(out) = child.stdout.take() {
             thread::spawn(move || {
                 let reader = BufReader::new(out);
-                for line in reader.lines().flatten() {
+                for line in reader.lines().map_while(Result::ok) {
                     println!("{line}");
                 }
             });
@@ -102,7 +116,7 @@ impl ServerState {
         if let Some(err) = child.stderr.take() {
             thread::spawn(move || {
                 let reader = BufReader::new(err);
-                for line in reader.lines().flatten() {
+                for line in reader.lines().map_while(Result::ok) {
                     eprintln!("{line}");
                 }
             });
@@ -144,10 +158,7 @@ impl ServerState {
         self.ensure_config()?;
         let path = self.config_path();
         let now = config_edit::toggle_dev_mode(&path)?;
-        println!(
-            "[host] Dev Mode is now {}",
-            if now { "ON" } else { "OFF" }
-        );
+        println!("[host] Dev Mode is now {}", if now { "ON" } else { "OFF" });
         self.restart()?;
         Ok(())
     }

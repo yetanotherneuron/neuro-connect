@@ -1,9 +1,10 @@
-mod config;
-mod local_db;
 mod commands;
-mod voice_manager;
+mod config;
+mod goldberg;
 mod lan_discovery;
+mod local_db;
 mod update_manager;
+mod voice_manager;
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -14,10 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir");
+            let data_dir = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("neuro-client.db");
             let db = local_db::LocalDb::open(db_path.to_str().unwrap())?;
@@ -46,49 +44,62 @@ pub fn run() {
             commands::browse_lan_servers,
             commands::local_ipv4,
             commands::apply_update,
+            commands::goldberg_status,
+            commands::goldberg_import_assets,
+            commands::goldberg_prepare_game,
+            commands::goldberg_apply_broadcasts,
+            commands::goldberg_restore_last,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Neuro Connect");
 }
 
-fn register_voice_hotkeys(app: &tauri::AppHandle, cfg: &config::ClientConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let mute = parse_shortcut(&cfg.hotkey_mute).unwrap_or_else(|| {
-        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM)
-    });
-    let deafen = parse_shortcut(&cfg.hotkey_deafen).unwrap_or_else(|| {
-        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyD)
-    });
-    let ptt = parse_shortcut(&cfg.hotkey_push_to_talk)
-        .unwrap_or_else(|| Shortcut::new(None, Code::KeyV));
+fn register_voice_hotkeys(
+    app: &tauri::AppHandle,
+    cfg: &config::ClientConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mute = parse_shortcut(&cfg.hotkey_mute)
+        .unwrap_or_else(|| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM));
+    let deafen = parse_shortcut(&cfg.hotkey_deafen)
+        .unwrap_or_else(|| Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyD));
+    let ptt =
+        parse_shortcut(&cfg.hotkey_push_to_talk).unwrap_or_else(|| Shortcut::new(None, Code::KeyV));
 
     let handle = app.clone();
-    app.global_shortcut().on_shortcut(mute, move |_app, _shortcut, event| {
-        if event.state == ShortcutState::Pressed {
-            let _ = handle.emit("nc-voice-hotkey", serde_json::json!({ "action": "mute" }));
-        }
-    })?;
+    app.global_shortcut()
+        .on_shortcut(mute, move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                let _ = handle.emit("nc-voice-hotkey", serde_json::json!({ "action": "mute" }));
+            }
+        })?;
 
     let handle = app.clone();
-    app.global_shortcut().on_shortcut(deafen, move |_app, _shortcut, event| {
-        if event.state == ShortcutState::Pressed {
-            let _ = handle.emit("nc-voice-hotkey", serde_json::json!({ "action": "deafen" }));
-        }
-    })?;
+    app.global_shortcut()
+        .on_shortcut(deafen, move |_app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                let _ = handle.emit("nc-voice-hotkey", serde_json::json!({ "action": "deafen" }));
+            }
+        })?;
 
     let handle = app.clone();
-    app.global_shortcut().on_shortcut(ptt, move |_app, _shortcut, event| {
-        let pressed = event.state == ShortcutState::Pressed;
-        let _ = handle.emit(
-            "nc-voice-hotkey",
-            serde_json::json!({ "action": "ptt", "pressed": pressed }),
-        );
-    })?;
+    app.global_shortcut()
+        .on_shortcut(ptt, move |_app, _shortcut, event| {
+            let pressed = event.state == ShortcutState::Pressed;
+            let _ = handle.emit(
+                "nc-voice-hotkey",
+                serde_json::json!({ "action": "ptt", "pressed": pressed }),
+            );
+        })?;
 
     Ok(())
 }
 
 fn parse_shortcut(raw: &str) -> Option<Shortcut> {
-    let parts: Vec<&str> = raw.split('+').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = raw
+        .split('+')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     if parts.is_empty() {
         return None;
     }

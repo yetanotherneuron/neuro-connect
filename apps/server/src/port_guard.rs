@@ -120,9 +120,13 @@ fn terminate_pid(pid: u32) -> anyhow::Result<()> {
     }
     #[cfg(not(windows))]
     {
-        let status = Command::new("kill").args(["-TERM", &pid.to_string()]).status()?;
+        let status = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()?;
         if !status.success() {
-            let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status()?;
+            let _ = Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status()?;
         }
         eprintln!("Terminated PID {pid}.");
         Ok(())

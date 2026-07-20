@@ -33,3 +33,4 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 mdns-sd = "0.13"
 hostname = "0.4"
+reqwest = { workspace = true }

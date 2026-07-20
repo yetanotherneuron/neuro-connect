@@ -74,7 +74,12 @@ pub async fn whoami_debug(
     let user = state
         .db
         .get_user(uid)
-        .map_err(|e| api_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .map_err(|e| {
+            api_err(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                &e.to_string(),
+            )
+        })?
         .ok_or_else(|| api_err(axum::http::StatusCode::NOT_FOUND, "user not found"))?;
     Ok(Json(serde_json::json!({
         "user": user,

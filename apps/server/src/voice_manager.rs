@@ -341,12 +341,7 @@ fn voice_set_state(
     Ok(())
 }
 
-fn voice_mute_peer(
-    state: &AppState,
-    actor: Uuid,
-    target: Uuid,
-    muted: bool,
-) -> Result<(), String> {
+fn voice_mute_peer(state: &AppState, actor: Uuid, target: Uuid, muted: bool) -> Result<(), String> {
     let channel_id = state
         .voice_user_channel
         .get(&actor)
@@ -399,8 +394,8 @@ fn voice_move_member(
     if to_channel.kind != ChannelKind::Voice {
         return Err("destination is not a voice channel".into());
     }
-    let rank = require_member(state, to_channel.server_id, actor)
-        .map_err(|(_, e)| e.0.error.clone())?;
+    let rank =
+        require_member(state, to_channel.server_id, actor).map_err(|(_, e)| e.0.error.clone())?;
     if !rank.can_moderate() {
         return Err("insufficient permissions to move members".into());
     }

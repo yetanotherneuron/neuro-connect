@@ -174,6 +174,27 @@ export function openDm(userId: string) {
   return apiRequest<DmThread>(`/api/dms/${userId}`, { method: "POST" });
 }
 
+export function createGroupDm(name: string, memberIds: string[]) {
+  return apiRequest<DmThread>("/api/dms/group", {
+    method: "POST",
+    body: JSON.stringify({ name, member_ids: memberIds }),
+  });
+}
+
+export function editMessage(id: string, content: string) {
+  return apiRequest<MessageInfo>(`/api/messages/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function reactMessage(id: string, emoji: string) {
+  return apiRequest<MessageInfo>(`/api/messages/${id}/reactions`, {
+    method: "POST",
+    body: JSON.stringify({ emoji }),
+  });
+}
+
 export function listDmMessages(dmId: string) {
   return apiRequest<MessageInfo[]>(`/api/dms/${dmId}/messages?limit=100`);
 }
@@ -292,7 +313,39 @@ export function fetchVoiceStatus() {
 }
 
 export function fetchMediaStatus() {
-  return apiRequest<Record<string, unknown>>("/api/media/status");
+  return apiRequest<{
+    status: string;
+    ready: boolean;
+    active: boolean;
+    relay: import("./types").MediaRelayInfo | null;
+    message?: string;
+  }>("/api/media/status");
+}
+
+export function startMediaRelay(body: {
+  url: string;
+  title?: string;
+  channel_id?: string | null;
+  server_id?: string | null;
+}) {
+  return apiRequest<import("./types").MediaRelayInfo>("/api/media/start", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function stopMediaRelay() {
+  return apiRequest<{ ok: boolean; relay_id: string }>("/api/media/stop", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** Build authenticated stream URL for &lt;audio&gt;/&lt;video&gt; elements. */
+export function mediaStreamUrl(streamPath: string) {
+  const token = authToken || "";
+  const sep = streamPath.includes("?") ? "&" : "?";
+  return `${baseUrl}${streamPath}${sep}token=${encodeURIComponent(token)}`;
 }
 
 export function fetchLanStatus() {
@@ -304,10 +357,19 @@ export function listGameHosts(serverId?: string) {
   return apiRequest<import("./types").GameHostInfo[]>(`/api/game-hosts${q}`);
 }
 
+export function lookupGameHostCode(code: string) {
+  return apiRequest<import("./types").GameHostInfo>(
+    `/api/game-hosts/code/${encodeURIComponent(code.trim())}`,
+  );
+}
+
 export function createGameHost(body: {
   game_name: string;
   address: string;
   note?: string;
+  kind?: "direct" | "goldberg";
+  app_id?: string;
+  connect_command?: string;
   server_id?: string | null;
   ttl_minutes?: number;
 }) {
@@ -319,4 +381,55 @@ export function createGameHost(body: {
 
 export function deleteGameHost(id: string) {
   return apiRequest<void>(`/api/game-hosts/${id}`, { method: "DELETE" });
+}
+
+export function fetchFriends() {
+  return apiRequest<import("./types").FriendsSnapshot>("/api/friends");
+}
+
+export function sendFriendRequest(username: string) {
+  return apiRequest<import("./types").FriendRequestInfo>("/api/friends/request", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+}
+
+export function acceptFriendRequest(id: string) {
+  return apiRequest<import("./types").FriendEntry>(`/api/friends/requests/${id}/accept`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function declineFriendRequest(id: string) {
+  return apiRequest<{ ok: boolean }>(`/api/friends/requests/${id}/decline`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function removeFriend(userId: string) {
+  return apiRequest<{ ok: boolean }>(`/api/friends/${userId}`, { method: "DELETE" });
+}
+
+export function blockUser(userId: string) {
+  return apiRequest<{ ok: boolean }>(`/api/users/${userId}/block`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function unblockUser(userId: string) {
+  return apiRequest<{ ok: boolean }>(`/api/users/${userId}/block`, { method: "DELETE" });
+}
+
+export function ignoreUser(userId: string) {
+  return apiRequest<{ ok: boolean }>(`/api/users/${userId}/ignore`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function unignoreUser(userId: string) {
+  return apiRequest<{ ok: boolean }>(`/api/users/${userId}/ignore`, { method: "DELETE" });
 }

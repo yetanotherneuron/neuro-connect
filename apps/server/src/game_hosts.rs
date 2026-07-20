@@ -1,5 +1,5 @@
-use crate::auth_api::{api_err, extract_user_id, require_not_banned};
 use crate::admin_api::require_global_admin;
+use crate::auth_api::{api_err, extract_user_id, require_not_banned};
 use crate::server_core::require_member;
 use crate::state::AppState;
 use axum::{
@@ -30,6 +30,21 @@ pub async fn list_game_hosts(
     Ok(Json(list))
 }
 
+pub async fn get_game_host_by_code(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+) -> Result<Json<GameHostInfo>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    require_not_banned(&state, uid)?;
+    state
+        .db
+        .get_game_host_by_code(&code)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .map(Json)
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "room code not found or expired"))
+}
+
 pub async fn create_game_host(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -49,13 +64,37 @@ pub async fn create_game_host(
         require_member(&state, sid, uid)?;
     }
     let ttl = body.ttl_minutes.unwrap_or(120).clamp(5, 1440);
+    let app_id = body
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let connect_command = body
+        .connect_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if body.kind == GameHostKind::Goldberg && app_id.is_none() {
+        return Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "app_id is required for Goldberg / Steam LAN hosts",
+        ));
+    }
     let host = state
         .db
-        .create_game_host(uid, game_name, address, body.note.trim(), body.server_id, ttl)
+        .create_game_host(
+            uid,
+            game_name,
+            address,
+            body.note.trim(),
+            body.kind,
+            app_id,
+            connect_command,
+            body.server_id,
+            ttl,
+        )
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    state.publish(WsEvent::GameHostUpdated {
-        host: host.clone(),
-    });
+    state.publish(WsEvent::GameHostUpdated { host: host.clone() });
     Ok(Json(host))
 }
 

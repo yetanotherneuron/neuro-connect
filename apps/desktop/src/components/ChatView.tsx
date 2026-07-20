@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
   deleteMessage,
+  editMessage,
   listDmMessages,
   listMessages,
+  reactMessage,
   sendDmMessage,
   sendMessage,
   uploadFile,
 } from "../lib/api";
-import type { MessageInfo, UserPublic } from "../lib/types";
+import type { MessageInfo, ReactionInfo, UserPublic } from "../lib/types";
 import { useToast } from "./Toast";
 import { MessageItem } from "./MessageItem";
 
@@ -49,14 +51,21 @@ export function ChatView({
     })();
 
     const onMsg = (ev: Event) => {
-      const detail = (ev as CustomEvent).detail as { message?: MessageInfo };
+      const detail = (ev as CustomEvent).detail as { message?: MessageInfo; type?: string };
       const msg = detail.message;
       if (!msg) return;
       const match =
         mode === "channel" ? msg.channel_id === targetId : msg.dm_id === targetId;
-      if (match) {
-        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      }
+      if (!match) return;
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === msg.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = msg;
+          return next;
+        }
+        return [...prev, msg];
+      });
     };
     const onDel = (ev: Event) => {
       const detail = (ev as CustomEvent).detail as {
@@ -70,12 +79,32 @@ export function ChatView({
         setMessages((prev) => prev.filter((m) => m.id !== detail.message_id));
       }
     };
+    const onReact = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as {
+        message_id?: string;
+        channel_id?: string | null;
+        dm_id?: string | null;
+        reactions?: ReactionInfo[];
+      };
+      const match =
+        mode === "channel" ? detail.channel_id === targetId : detail.dm_id === targetId;
+      if (!match || !detail.message_id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === detail.message_id ? { ...m, reactions: detail.reactions || [] } : m,
+        ),
+      );
+    };
     window.addEventListener("nc-message", onMsg);
     window.addEventListener("nc-message-deleted", onDel);
+    window.addEventListener("nc-message-updated", onMsg);
+    window.addEventListener("nc-message-reaction", onReact);
     return () => {
       cancelled = true;
       window.removeEventListener("nc-message", onMsg);
       window.removeEventListener("nc-message-deleted", onDel);
+      window.removeEventListener("nc-message-updated", onMsg);
+      window.removeEventListener("nc-message-reaction", onReact);
     };
   }, [mode, targetId, pushToast]);
 
@@ -132,6 +161,26 @@ export function ChatView({
     }
   }
 
+  async function handleEdit(msg: MessageInfo) {
+    const next = prompt("Edit message", msg.content);
+    if (next == null || next.trim() === msg.content) return;
+    try {
+      const updated = await editMessage(msg.id, next.trim());
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "edit failed", "error");
+    }
+  }
+
+  async function handleReact(id: string, emoji: string) {
+    try {
+      const updated = await reactMessage(id, emoji);
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "react failed", "error");
+    }
+  }
+
   function canDelete(msg: MessageInfo) {
     if (me.is_global_admin) return true;
     if (mode === "dm") return true;
@@ -142,15 +191,18 @@ export function ChatView({
     <section className="chat app-fade">
       <header className="chat-header">
         <h2>{title}</h2>
-        <span className="muted">Markdown · spoilers ||like this|| · code fences</span>
+        <span className="muted">Markdown · spoilers ||like this|| · reactions</span>
       </header>
       <div className="chat-messages" ref={listRef}>
         {messages.map((m) => (
           <MessageItem
             key={m.id}
             message={m}
+            meId={me.id}
             canDelete={canDelete(m)}
-            onDelete={() => handleDelete(m.id)}
+            onDelete={() => void handleDelete(m.id)}
+            onEdit={() => void handleEdit(m)}
+            onReact={(emoji) => void handleReact(m.id, emoji)}
             onOpenProfile={onOpenProfile}
           />
         ))}

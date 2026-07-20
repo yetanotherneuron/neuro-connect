@@ -59,7 +59,5 @@ pub fn load_config(path: &Path) -> anyhow::Result<ServerConfig> {
 }
 
 pub fn is_loopback_bind(bind: &str) -> bool {
-    bind.starts_with("127.0.0.1")
-        || bind.starts_with("localhost")
-        || bind.starts_with("[::1]")
+    bind.starts_with("127.0.0.1") || bind.starts_with("localhost") || bind.starts_with("[::1]")
 }

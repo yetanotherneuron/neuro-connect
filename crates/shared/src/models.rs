@@ -123,13 +123,51 @@ pub struct MessageInfo {
     pub attachment_name: Option<String>,
     pub created_at: DateTime<Utc>,
     pub edited_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub reactions: Vec<ReactionInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DmThread {
     pub id: Uuid,
-    pub peer: UserPublic,
+    /// Present for 1:1 DMs.
+    #[serde(default)]
+    pub peer: Option<UserPublic>,
+    /// Present for group DMs.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default = "default_dm_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub members: Vec<UserPublic>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_dm_kind() -> String {
+    "direct".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateGroupDmRequest {
+    pub name: String,
+    pub member_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditMessageRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionRequest {
+    pub emoji: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionInfo {
+    pub emoji: String,
+    pub count: i64,
+    pub reacted_by_me: bool,
 }
 
 pub const MAX_UPLOAD_BYTES: u64 = 12 * 1024 * 1024;

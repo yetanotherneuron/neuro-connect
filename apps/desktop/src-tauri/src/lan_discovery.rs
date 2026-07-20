@@ -45,7 +45,15 @@ pub fn browse_neuro_servers(timeout_ms: u64) -> Result<Vec<LanPeer>, String> {
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| info.get_fullname().to_string());
                 let url = format!("http://{host}:{port}");
-                found.insert(url.clone(), LanPeer { name, host, port, url });
+                found.insert(
+                    url.clone(),
+                    LanPeer {
+                        name,
+                        host,
+                        port,
+                        url,
+                    },
+                );
             }
             Ok(_) => {}
             Err(_) => break,
@@ -61,9 +69,7 @@ pub fn browse_neuro_servers(timeout_ms: u64) -> Result<Vec<LanPeer>, String> {
 pub fn local_ipv4() -> Result<String, String> {
     // UDP connect trick — no packets sent; discovers preferred egress IP.
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-    socket
-        .connect("8.8.8.8:80")
-        .map_err(|e| e.to_string())?;
+    socket.connect("8.8.8.8:80").map_err(|e| e.to_string())?;
     let ip = socket.local_addr().map_err(|e| e.to_string())?.ip();
     Ok(ip.to_string())
 }

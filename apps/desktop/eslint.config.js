@@ -1,21 +1,14 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-/** Repo-root config — run via `cd apps/desktop && npm run lint` (deps live there). */
 export default tseslint.config(
   {
-    ignores: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/target/**",
-      "third-party/**",
-      "apps/desktop/src-tauri/**",
-    ],
+    ignores: ["**/node_modules/**", "**/dist/**", "src-tauri/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["apps/desktop/src/**/*.{ts,tsx}", "web/src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",

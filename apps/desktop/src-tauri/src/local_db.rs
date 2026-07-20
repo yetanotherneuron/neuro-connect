@@ -52,11 +52,9 @@ impl LocalDb {
 
     pub fn get_session(&self) -> anyhow::Result<Option<(String, String)>> {
         let conn = self.conn.lock().unwrap();
-        let row = conn.query_row(
-            "SELECT token, user_json FROM session WHERE id=1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        );
+        let row = conn.query_row("SELECT token, user_json FROM session WHERE id=1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        });
         match row {
             Ok(v) => Ok(Some(v)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -70,7 +68,13 @@ impl LocalDb {
         Ok(())
     }
 
-    pub fn cache_message(&self, id: &str, scope: &str, payload: &str, created_at: &str) -> anyhow::Result<()> {
+    pub fn cache_message(
+        &self,
+        id: &str,
+        scope: &str,
+        payload: &str,
+        created_at: &str,
+    ) -> anyhow::Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT OR REPLACE INTO message_cache (id, channel_or_dm, payload, created_at) VALUES (?1,?2,?3,?4)",

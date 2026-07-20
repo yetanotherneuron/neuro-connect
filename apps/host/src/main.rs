@@ -4,7 +4,7 @@
 mod config_edit;
 mod process;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tao::{
     event::Event,
@@ -173,7 +173,7 @@ fn discover_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn load_icon(root: &PathBuf) -> tray_icon::Icon {
+fn load_icon(root: &Path) -> tray_icon::Icon {
     let candidates = [
         root.join("icon.png"),
         root.join("assets").join("icons").join("icon.png"),

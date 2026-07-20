@@ -14,11 +14,17 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 | Community server (Rust / Axum + SQLite) | `apps/server` | MVP + voice + updates |
 | Shared protocol crate | `crates/shared` | MVP |
 | Official website (static) | `website` | Live |
-| Web / mobile scaffold | `web` | Stub |
+| Web / mobile scaffold | `web` | Stub / TODO |
 | Voice (WebRTC mesh / Opus) | desktop + server signaling | Live |
 | Screen share + desktop audio | desktop + voice signaling | Live |
+| Media URL relay | server + desktop | Live |
+| Friends (requests / block / presence) | server + desktop | Live |
+| Group DMs | server + desktop | Live |
+| Message edit + reactions | server + desktop | Live |
 | LAN mDNS + Game Host board | server + desktop | Live |
-| Media URL relay | stub | Coming soon |
+| Goldberg Steam LAN helper | desktop | Live (import release) |
+| Goldberg Steam LAN helper | desktop | Live (import release) |
+| Web / mobile scaffold | `web` | Stub / TODO |
 
 ## Quick start
 
@@ -35,7 +41,7 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 - [VPS_HOSTING.md](docs/VPS_HOSTING.md) - public-IP VPS (no domain)
 - [FIREWALL.md](docs/FIREWALL.md) - ufw / firewalld / Windows Firewall
 - [VOICE.md](docs/VOICE.md) - voice rooms + screen share
-- [GAME_HOSTING.md](docs/GAME_HOSTING.md) - LAN co-op IP board
+- [GAME_HOSTING.md](docs/GAME_HOSTING.md) - LAN co-op + Goldberg room codes
 - [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - common errors
 - [BUILD_RELEASE.md](docs/BUILD_RELEASE.md) - Beta/Release builds + self-hosted updates
 - [DEVELOPMENT.md](docs/DEVELOPMENT.md) - repo layout & local dev loop
@@ -60,7 +66,9 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 - **Voice rooms** - WebRTC mesh (Opus), PTT / open mic, mute / deafen, move members
 - **Screen share** - one sharer per voice channel; optional desktop audio when the OS picker provides it
 - **LAN discovery** - mDNS find servers on your network
-- **Game Host board** - share co-op IP:port with friends
+- **Game Host board** - share a **room code** for LAN / Steam-LAN (Goldberg) co-op
+- **Goldberg helper** - import emu once, prepare game folder, auto `custom_broadcasts` on join
+- **Friends** - requests, accept/decline, block, ignore, online presence
 - File uploads up to 12 MB (paste links for larger files)
 - DMs where either participant can delete messages
 - **Beta builds** with selectable Server URL; **Release builds** locked to a baked VPS URL

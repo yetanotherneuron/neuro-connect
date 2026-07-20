@@ -43,6 +43,10 @@ pub async fn list_messages(
         .db
         .list_channel_messages(id, q.limit.clamp(1, 200))
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let msgs = state
+        .db
+        .attach_reactions(msgs, uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     Ok(Json(msgs))
 }
 
@@ -110,12 +114,10 @@ pub async fn delete_message(
     {
         true
     } else if let Some(dm) = dm_id {
-        let parts = state
+        state
             .db
-            .dm_participants(dm)
+            .is_dm_member(dm, uid)
             .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
-            .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "dm not found"))?;
-        uid == parts.0 || uid == parts.1
     } else if let Some(cid) = channel_id {
         let channel = state
             .db
@@ -132,16 +134,76 @@ pub async fn delete_message(
         return Err(api_err(StatusCode::FORBIDDEN, "cannot delete this message"));
     }
 
+    let _ = msg;
     state
         .db
         .delete_message(id)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     state.publish(WsEvent::MessageDeleted {
-        message_id: msg.id,
+        message_id: id,
         channel_id,
         dm_id,
     });
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn edit_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<EditMessageRequest>,
+) -> Result<Json<MessageInfo>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    let content = body.content.trim();
+    if content.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "empty message"));
+    }
+    let msg = state
+        .db
+        .edit_message(id, uid, content)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    state.publish(WsEvent::MessageUpdated {
+        message: msg.clone(),
+    });
+    Ok(Json(msg))
+}
+
+pub async fn react_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReactionRequest>,
+) -> Result<Json<MessageInfo>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    let (msg, _author, channel_id, dm_id) = state
+        .db
+        .get_message(id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "message not found"))?;
+    if let Some(cid) = channel_id {
+        let channel = state
+            .db
+            .get_channel(cid)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+            .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "channel not found"))?;
+        require_member(&state, channel.server_id, uid)?;
+    } else if let Some(did) = dm_id {
+        require_dm_participant(&state, did, uid)?;
+    } else {
+        return Err(api_err(StatusCode::BAD_REQUEST, "invalid message"));
+    }
+    let _ = msg;
+    let updated = state
+        .db
+        .toggle_reaction(id, uid, &body.emoji)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    state.publish(WsEvent::MessageReactionUpdated {
+        message_id: id,
+        channel_id,
+        dm_id,
+        reactions: updated.reactions.clone(),
+    });
+    Ok(Json(updated))
 }
 
 pub async fn list_dms(
@@ -165,7 +227,17 @@ pub async fn open_dm(
     if uid == user_id {
         return Err(api_err(StatusCode::BAD_REQUEST, "cannot dm yourself"));
     }
-    let peer = state
+    if state
+        .db
+        .is_blocked_either(uid, user_id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+    {
+        return Err(api_err(
+            StatusCode::FORBIDDEN,
+            "cannot message this user (blocked)",
+        ));
+    }
+    let _peer = state
         .db
         .get_user(user_id)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
@@ -174,11 +246,25 @@ pub async fn open_dm(
         .db
         .open_or_get_dm(uid, user_id)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    Ok(Json(DmThread {
-        id: dm_id,
-        peer,
-        updated_at: chrono::Utc::now(),
-    }))
+    let thread = state
+        .db
+        .get_dm_thread(dm_id, uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .ok_or_else(|| api_err(StatusCode::INTERNAL_SERVER_ERROR, "dm missing"))?;
+    Ok(Json(thread))
+}
+
+pub async fn create_group_dm(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateGroupDmRequest>,
+) -> Result<Json<DmThread>, (StatusCode, Json<ApiError>)> {
+    let uid = extract_user_id(&headers, &state)?;
+    let thread = state
+        .db
+        .create_group_dm(uid, &body.name, &body.member_ids)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    Ok(Json(thread))
 }
 
 pub async fn list_dm_messages(
@@ -193,6 +279,10 @@ pub async fn list_dm_messages(
         .db
         .list_dm_messages(dm_id, q.limit.clamp(1, 200))
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let msgs = state
+        .db
+        .attach_reactions(msgs, uid)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     Ok(Json(msgs))
 }
 
@@ -204,6 +294,22 @@ pub async fn send_dm_message(
 ) -> Result<Json<MessageInfo>, (StatusCode, Json<ApiError>)> {
     let uid = extract_user_id(&headers, &state)?;
     require_dm_participant(&state, dm_id, uid)?;
+    if let Ok(Some(thread)) = state.db.get_dm_thread(dm_id, uid) {
+        if thread.kind != "group" {
+            if let Some(peer) = thread.peer {
+                if state
+                    .db
+                    .is_blocked_either(uid, peer.id)
+                    .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+                {
+                    return Err(api_err(
+                        StatusCode::FORBIDDEN,
+                        "cannot message this user (blocked)",
+                    ));
+                }
+            }
+        }
+    }
     if body.content.trim().is_empty() && body.attachment_url.is_none() {
         return Err(api_err(StatusCode::BAD_REQUEST, "empty message"));
     }
@@ -229,12 +335,11 @@ fn require_dm_participant(
     dm_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), (StatusCode, Json<ApiError>)> {
-    let parts = state
+    let ok = state
         .db
-        .dm_participants(dm_id)
-        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
-        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "dm not found"))?;
-    if user_id == parts.0 || user_id == parts.1 {
+        .is_dm_member(dm_id, user_id)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    if ok {
         Ok(())
     } else {
         Err(api_err(StatusCode::FORBIDDEN, "not a dm participant"))
@@ -249,46 +354,43 @@ pub async fn upload_file(
     let _uid = extract_user_id(&headers, &state)?;
     let max_bytes = state.cfg.max_upload_mb * 1024 * 1024;
 
-    while let Some(field) = multipart
+    let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?
-    {
-        let name = field
-            .file_name()
-            .unwrap_or("file.bin")
-            .to_string();
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
-        if data.len() as u64 > max_bytes {
-            return Err(api_err(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                &format!(
-                    "file exceeds {} MB limit - paste a direct link for larger files",
-                    state.cfg.max_upload_mb
-                ),
-            ));
-        }
-        let path_name = PathBuf::from(&name);
-        let ext = path_name
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("bin");
-        let stored = format!("{}.{}", Uuid::new_v4(), ext);
-        let path = PathBuf::from(&state.cfg.upload_dir).join(&stored);
-        tokio::fs::write(&path, &data)
-            .await
-            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-        let url = format!("/uploads/{stored}");
-        return Ok(Json(serde_json::json!({
-            "url": url,
-            "name": name,
-            "size": data.len()
-        })));
+    else {
+        return Err(api_err(StatusCode::BAD_REQUEST, "no file provided"));
+    };
+    let name = field.file_name().unwrap_or("file.bin").to_string();
+    let data = field
+        .bytes()
+        .await
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    if data.len() as u64 > max_bytes {
+        return Err(api_err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!(
+                "file exceeds {} MB limit - paste a direct link for larger files",
+                state.cfg.max_upload_mb
+            ),
+        ));
     }
-    Err(api_err(StatusCode::BAD_REQUEST, "no file provided"))
+    let path_name = PathBuf::from(&name);
+    let ext = path_name
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let stored = format!("{}.{}", Uuid::new_v4(), ext);
+    let path = PathBuf::from(&state.cfg.upload_dir).join(&stored);
+    tokio::fs::write(&path, &data)
+        .await
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let url = format!("/uploads/{stored}");
+    Ok(Json(serde_json::json!({
+        "url": url,
+        "name": name,
+        "size": data.len()
+    })))
 }
 
 #[derive(Deserialize)]

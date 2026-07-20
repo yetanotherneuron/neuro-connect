@@ -1,5 +1,6 @@
 use crate::config::ServerConfig;
 use crate::db::Database;
+use crate::media_relay::{new_slot, MediaRelaySlot};
 use crate::voice_manager::VoiceRoom;
 use dashmap::DashMap;
 use neuro_shared::WsEvent;
@@ -15,6 +16,7 @@ pub struct AppState {
     pub online: Arc<DashMap<Uuid, u32>>,
     pub voice_rooms: Arc<DashMap<Uuid, VoiceRoom>>,
     pub voice_user_channel: Arc<DashMap<Uuid, Uuid>>,
+    pub media_relay: MediaRelaySlot,
 }
 
 impl AppState {
@@ -28,6 +30,7 @@ impl AppState {
             online: Arc::new(DashMap::new()),
             voice_rooms: Arc::new(DashMap::new()),
             voice_user_channel: Arc::new(DashMap::new()),
+            media_relay: new_slot(),
         })
     }
 

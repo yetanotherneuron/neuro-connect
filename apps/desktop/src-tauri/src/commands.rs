@@ -17,7 +17,10 @@ pub fn get_config(state: State<'_, AppHandleState>) -> ClientConfig {
 }
 
 #[tauri::command]
-pub fn set_server_url(state: State<'_, AppHandleState>, url: String) -> Result<ClientConfig, String> {
+pub fn set_server_url(
+    state: State<'_, AppHandleState>,
+    url: String,
+) -> Result<ClientConfig, String> {
     let mut cfg = state.cfg.lock().unwrap();
     cfg.server_url = url;
     save_client_config(&state.data_dir, &cfg).map_err(|e| e.to_string())?;
@@ -59,9 +62,7 @@ pub fn get_session(state: State<'_, AppHandleState>) -> Result<Option<SessionDat
     state
         .db
         .get_session()
-        .map(|o| {
-            o.map(|(token, user_json)| SessionData { token, user_json })
-        })
+        .map(|o| o.map(|(token, user_json)| SessionData { token, user_json }))
         .map_err(|e| e.to_string())
 }
 
@@ -119,7 +120,9 @@ pub fn lan_stub_status() -> serde_json::Value {
 }
 
 #[tauri::command]
-pub fn browse_lan_servers(timeout_ms: Option<u64>) -> Result<Vec<crate::lan_discovery::LanPeer>, String> {
+pub fn browse_lan_servers(
+    timeout_ms: Option<u64>,
+) -> Result<Vec<crate::lan_discovery::LanPeer>, String> {
     crate::lan_discovery::browse_neuro_servers(timeout_ms.unwrap_or(2500))
 }
 
@@ -135,4 +138,41 @@ pub async fn apply_update(
     filename: String,
 ) -> Result<serde_json::Value, String> {
     crate::update_manager::apply_update(url, sha256, filename).await
+}
+
+#[tauri::command]
+pub fn goldberg_status(state: State<'_, AppHandleState>) -> crate::goldberg::GoldbergStatus {
+    crate::goldberg::status(&state.data_dir)
+}
+
+#[tauri::command]
+pub fn goldberg_import_assets(
+    state: State<'_, AppHandleState>,
+) -> Result<crate::goldberg::GoldbergStatus, String> {
+    crate::goldberg::pick_import_folder(&state.data_dir)
+}
+
+#[tauri::command]
+pub fn goldberg_prepare_game(
+    state: State<'_, AppHandleState>,
+    app_id: String,
+    account_name: String,
+    listen_port: Option<u16>,
+) -> Result<crate::goldberg::PreparedGame, String> {
+    crate::goldberg::pick_and_prepare_game(&state.data_dir, &app_id, &account_name, listen_port)
+}
+
+#[tauri::command]
+pub fn goldberg_apply_broadcasts(
+    state: State<'_, AppHandleState>,
+    ips: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    crate::goldberg::apply_broadcasts(&state.data_dir, ips)
+}
+
+#[tauri::command]
+pub fn goldberg_restore_last(
+    state: State<'_, AppHandleState>,
+) -> Result<String, String> {
+    crate::goldberg::restore_last_prepared(&state.data_dir)
 }

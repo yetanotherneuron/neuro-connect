@@ -2,18 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AvatarImage, ProfileCard } from "../components/Avatar";
 import { ChatView } from "../components/ChatView";
 import { useContextMenu } from "../components/ContextMenu";
+import { FriendsHome } from "../components/FriendsHome";
+import { MediaRelayBar } from "../components/MediaRelayBar";
 import { useToast } from "../components/Toast";
 import { VoiceConnectedBar, VoicePanel } from "../components/VoicePanel";
 import {
   banUser,
+  blockUser,
   claimGlobalAdmin,
   connectRealtime,
   createChannel,
-  createGameHost,
+  createGroupDm,
   createServer,
   deleteAdminServer,
   deleteChannel,
-  deleteGameHost,
+  fetchFriends,
   joinServer,
   listAdminUsers,
   listChannels,
@@ -23,20 +26,23 @@ import {
   listServers,
   logoutUser,
   openDm,
+  removeFriend,
   renameChannel,
   setMemberRank,
   unbanUser,
   updateProfile,
   type RealtimeClient,
 } from "../lib/api";
-import { wipeSession, saveVoiceSettings, localIpv4 } from "../lib/native";
+import { wipeSession, saveVoiceSettings } from "../lib/native";
 import { VoiceSession } from "../lib/voice/VoiceSession";
 import type {
   AdminUserInfo,
   ChannelInfo,
   ClientConfig,
   DmThread,
+  FriendsSnapshot,
   GameHostInfo,
+  MediaRelayInfo,
   MemberInfo,
   Rank,
   ServerInfo,
@@ -45,6 +51,7 @@ import type {
   VoicePeerInfo,
 } from "../lib/types";
 import "./MainShell.css";
+import "../components/FriendsHome.css";
 
 type NavMode = "home" | "server";
 
@@ -88,7 +95,7 @@ function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
 export function MainShell({
   user,
   config,
-  meta,
+  meta: _meta,
   onLogout,
   onUser,
   onConfig,
@@ -128,7 +135,9 @@ export function MainShell({
     videoStream: null as MediaStream | null,
   });
   const [gameHosts, setGameHosts] = useState<GameHostInfo[]>([]);
-  const [gameForm, setGameForm] = useState({ game_name: "", address: "", note: "" });
+  const [mediaRelay, setMediaRelay] = useState<MediaRelayInfo | null>(null);
+  const [friendsSnap, setFriendsSnap] = useState<FriendsSnapshot | null>(null);
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
   const voiceRef = useRef<VoiceSession | null>(null);
   const realtimeRef = useRef<RealtimeClient | null>(null);
   const configRef = useRef(config);
@@ -144,13 +153,22 @@ export function MainShell({
   );
 
   const friends = useMemo(() => {
-    const map = new Map<string, UserPublic>();
-    for (const d of dms) map.set(d.peer.id, d.peer);
-    for (const m of members) {
-      if (m.user.id !== user.id) map.set(m.user.id, m.user);
+    const list = friendsSnap?.friends || [];
+    return list.map((f) => ({
+      ...f,
+      online: onlineIds.has(f.user.id) || f.online,
+    }));
+  }, [friendsSnap, onlineIds]);
+
+  async function refreshFriends() {
+    try {
+      const snap = await fetchFriends();
+      setFriendsSnap(snap);
+      setOnlineIds(new Set(snap.friends.filter((f) => f.online).map((f) => f.user.id)));
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "friends load failed", "error");
     }
-    return [...map.values()].sort((a, b) => a.display_name.localeCompare(b.display_name));
-  }, [dms, members, user.id]);
+  }
 
   async function refreshServers() {
     const list = await listServers();
@@ -168,6 +186,7 @@ export function MainShell({
     setMembers([]);
     setView({ kind: "friends" });
     setDms(await listDms());
+    await refreshFriends();
   }
 
   async function selectServer(server: ServerInfo) {
@@ -211,21 +230,38 @@ export function MainShell({
         await refreshServers();
         setDms(await listDms());
         setGameHosts(await listGameHosts());
+        try {
+          const snap = await fetchFriends();
+          setFriendsSnap(snap);
+          setOnlineIds(new Set(snap.friends.filter((f) => f.online).map((f) => f.user.id)));
+        } catch {
+          /* friends optional on first load */
+        }
         setNavMode("home");
         setView({ kind: "friends" });
-        const ip = await localIpv4();
-        if (ip) {
-          setGameForm((f) => (f.address ? f : { ...f, address: `${ip}:24642` }));
-        }
       } catch (e) {
         pushToast(e instanceof Error ? e.message : "load failed", "error");
       }
     })();
 
     const rt = connectRealtime((raw) => {
-      const ev = raw as { type?: string; host?: GameHostInfo; host_id?: string };
+      const ev = raw as {
+        type?: string;
+        host?: GameHostInfo;
+        host_id?: string;
+        relay?: MediaRelayInfo;
+        relay_id?: string;
+        user_id?: string;
+        online?: boolean;
+      };
       if (ev.type === "message_created") {
         window.dispatchEvent(new CustomEvent("nc-message", { detail: ev }));
+      }
+      if (ev.type === "message_updated") {
+        window.dispatchEvent(new CustomEvent("nc-message-updated", { detail: ev }));
+      }
+      if (ev.type === "message_reaction_updated") {
+        window.dispatchEvent(new CustomEvent("nc-message-reaction", { detail: ev }));
       }
       if (ev.type === "message_deleted") {
         window.dispatchEvent(new CustomEvent("nc-message-deleted", { detail: ev }));
@@ -238,6 +274,34 @@ export function MainShell({
       }
       if (ev.type === "game_host_removed" && ev.host_id) {
         setGameHosts((prev) => prev.filter((h) => h.id !== ev.host_id));
+      }
+      if (ev.type === "media_relay_started" && ev.relay) {
+        setMediaRelay(ev.relay);
+      }
+      if (ev.type === "media_relay_stopped") {
+        setMediaRelay(null);
+      }
+      if (ev.type === "presence" && ev.user_id) {
+        setOnlineIds((prev) => {
+          const next = new Set(prev);
+          if (ev.online) next.add(ev.user_id!);
+          else next.delete(ev.user_id!);
+          return next;
+        });
+      }
+      if (
+        ev.type === "friend_request_created" ||
+        ev.type === "friend_accepted" ||
+        ev.type === "friend_removed"
+      ) {
+        void fetchFriends()
+          .then((snap) => {
+            setFriendsSnap(snap);
+            setOnlineIds(new Set(snap.friends.filter((f) => f.online).map((f) => f.user.id)));
+          })
+          .catch(() => {
+            /* ignore */
+          });
       }
       session.handleEvent(raw);
     });
@@ -306,7 +370,6 @@ export function MainShell({
       voiceRef.current = null;
       realtimeRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -424,10 +487,15 @@ export function MainShell({
       setNavMode("home");
       setActiveServer(null);
       setChannels([]);
-      setView({ kind: "dm", id: dm.id, title: `@ ${dm.peer.display_name}` });
+      setView({ kind: "dm", id: dm.id, title: dmTitle(dm) });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "dm failed", "error");
     }
+  }
+
+  function dmTitle(d: DmThread) {
+    if (d.kind === "group" || d.name) return d.name || "Group";
+    return `@ ${d.peer?.display_name || "DM"}`;
   }
 
   function closeDm(id: string) {
@@ -488,29 +556,59 @@ export function MainShell({
                     <button
                       type="button"
                       className={`nav-item with-avatar ${view.kind === "dm" && view.id === d.id ? "active" : ""}`}
-                      onClick={() => setView({ kind: "dm", id: d.id, title: `@ ${d.peer.display_name}` })}
+                      onClick={() => setView({ kind: "dm", id: d.id, title: dmTitle(d) })}
                       onContextMenu={(e) =>
                         openContextMenu(
                           e,
                           [
-                            { id: "profile", label: "View profile" },
+                            {
+                              id: "profile",
+                              label: "View profile",
+                              disabled: !d.peer,
+                            },
                             { id: "close", label: "Close DM", danger: true },
                           ],
                           (id) => {
-                            if (id === "profile") setProfileUser(d.peer);
+                            if (id === "profile" && d.peer) setProfileUser(d.peer);
                             if (id === "close") closeDm(d.id);
                           },
                         )
                       }
                     >
-                      <AvatarImage user={d.peer} size={24} />
-                      <span>{d.peer.display_name}</span>
+                      {d.peer ? (
+                        <AvatarImage user={d.peer} size={24} />
+                      ) : (
+                        <span className="group-dm-icon">#</span>
+                      )}
+                      <span>{dmTitle(d)}</span>
                     </button>
                     <button type="button" className="nav-close" title="Close DM" onClick={() => closeDm(d.id)}>
                       ×
                     </button>
                   </div>
                 ))}
+                <button
+                  type="button"
+                  className="nav-item muted"
+                  onClick={async () => {
+                    const name = prompt("Group name");
+                    if (!name?.trim()) return;
+                    const ids = prompt("Member user IDs (comma-separated UUIDs)") || "";
+                    const memberIds = ids
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    try {
+                      const g = await createGroupDm(name.trim(), memberIds);
+                      setDms((prev) => [g, ...prev.filter((d) => d.id !== g.id)]);
+                      setView({ kind: "dm", id: g.id, title: dmTitle(g) });
+                    } catch (e) {
+                      pushToast(e instanceof Error ? e.message : "group failed", "error");
+                    }
+                  }}
+                >
+                  + New group DM
+                </button>
               </div>
               <div className="panel-section">
                 <div className="section-label">
@@ -519,28 +617,44 @@ export function MainShell({
                     All
                   </button>
                 </div>
+                {friends.length === 0 && <p className="panel-empty">No friends yet</p>}
                 {friends.slice(0, 12).map((f) => (
                   <button
-                    key={f.id}
+                    key={f.user.id}
                     type="button"
-                    className="nav-item with-avatar"
-                    onClick={() => void handleOpenDm(f)}
+                    className={`nav-item with-avatar ${f.online ? "online" : ""}`}
+                    onClick={() => void handleOpenDm(f.user)}
                     onContextMenu={(e) =>
                       openContextMenu(
                         e,
                         [
                           { id: "message", label: "Message" },
                           { id: "profile", label: "View profile" },
+                          { id: "remove", label: "Remove friend", danger: true },
+                          { id: "block", label: "Block", danger: true },
                         ],
                         (id) => {
-                          if (id === "message") void handleOpenDm(f);
-                          if (id === "profile") setProfileUser(f);
+                          if (id === "message") void handleOpenDm(f.user);
+                          if (id === "profile") setProfileUser(f.user);
+                          if (id === "remove") {
+                            void removeFriend(f.user.id).then(() => refreshFriends()).catch((err) =>
+                              pushToast(err instanceof Error ? err.message : "failed", "error"),
+                            );
+                          }
+                          if (id === "block") {
+                            void blockUser(f.user.id).then(() => refreshFriends()).catch((err) =>
+                              pushToast(err instanceof Error ? err.message : "failed", "error"),
+                            );
+                          }
                         },
                       )
                     }
                   >
-                    <AvatarImage user={f} size={24} />
-                    <span>{f.display_name}</span>
+                    <AvatarImage user={f.user} size={24} />
+                    <span>
+                      {f.user.display_name}
+                      {f.online ? " · online" : ""}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -683,6 +797,21 @@ export function MainShell({
       </aside>
 
       <main className="main-pane">
+        {view.kind === "channel" && mediaRelay && (
+          <MediaRelayBar
+            relay={mediaRelay}
+            serverId={activeServer?.id}
+            channelId={view.id}
+            localUserId={user.id}
+            canModerate={
+              !!user.is_global_admin ||
+              myRank === "owner" ||
+              myRank === "admin" ||
+              myRank === "moderator"
+            }
+            onRelayChange={setMediaRelay}
+          />
+        )}
         {view.kind === "channel" && (
           <ChatView
             mode="channel"
@@ -735,122 +864,26 @@ export function MainShell({
           />
         )}
         {view.kind === "friends" && (
-          <div className="friends-view app-fade">
-            <header className="chat-header">
-              <h2>Home</h2>
-              <span className="muted">Friends and game hosts on this server</span>
-            </header>
-            <div className="friends-list">
-              <h3 className="home-section-title">Friends</h3>
-              {friends.length === 0 && (
-                <p className="muted">Join a server or open a DM to see people here.</p>
-              )}
-              {friends.map((f) => (
-                <div key={f.id} className="friend-row">
-                  <button type="button" className="friend-main" onClick={() => setProfileUser(f)}>
-                    <AvatarImage user={f} size={40} />
-                    <div>
-                      <strong>{f.display_name}</strong>
-                      <div className="muted">@{f.username}</div>
-                    </div>
-                  </button>
-                  <button type="button" className="primary sm" onClick={() => void handleOpenDm(f)}>
-                    Message
-                  </button>
-                </div>
-              ))}
-
-              <h3 className="home-section-title">Game Hosts</h3>
-              <p className="muted home-hint">
-                Post a LAN / IP game address so friends can join (e.g. Stardew Valley).
-              </p>
-              <div className="game-host-form">
-                <input
-                  className="nc-input"
-                  placeholder="Game name"
-                  value={gameForm.game_name}
-                  onChange={(e) => setGameForm((f) => ({ ...f, game_name: e.target.value }))}
-                />
-                <input
-                  className="nc-input"
-                  placeholder="IP:port"
-                  value={gameForm.address}
-                  onChange={(e) => setGameForm((f) => ({ ...f, address: e.target.value }))}
-                />
-                <input
-                  className="nc-input"
-                  placeholder="Note (optional)"
-                  value={gameForm.note}
-                  onChange={(e) => setGameForm((f) => ({ ...f, note: e.target.value }))}
-                />
-                <button
-                  type="button"
-                  className="primary sm"
-                  onClick={async () => {
-                    try {
-                      const host = await createGameHost({
-                        game_name: gameForm.game_name,
-                        address: gameForm.address,
-                        note: gameForm.note,
-                        server_id: activeServer?.id,
-                      });
-                      setGameHosts((prev) => [host, ...prev.filter((h) => h.id !== host.id)]);
-                      setGameForm((f) => ({ ...f, game_name: "", note: "" }));
-                      pushToast("Game host posted", "success");
-                    } catch (e) {
-                      pushToast(e instanceof Error ? e.message : "failed", "error");
-                    }
-                  }}
-                >
-                  Host a game
-                </button>
-              </div>
-              {gameHosts.length === 0 && <p className="muted">No active game hosts.</p>}
-              {gameHosts.map((h) => (
-                <div key={h.id} className="game-host-row">
-                  <div>
-                    <strong>{h.game_name}</strong>
-                    <div className="muted">
-                      {h.address} · {h.user.display_name}
-                      {h.note ? ` · ${h.note}` : ""}
-                    </div>
-                  </div>
-                  <div className="game-host-actions">
-                    <button
-                      type="button"
-                      className="ghost sm"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(h.address);
-                          pushToast("Address copied", "success");
-                        } catch {
-                          pushToast(h.address, "info");
-                        }
-                      }}
-                    >
-                      Copy
-                    </button>
-                    {(h.user.id === user.id || user.is_global_admin) && (
-                      <button
-                        type="button"
-                        className="danger sm"
-                        onClick={async () => {
-                          try {
-                            await deleteGameHost(h.id);
-                            setGameHosts((prev) => prev.filter((x) => x.id !== h.id));
-                          } catch (e) {
-                            pushToast(e instanceof Error ? e.message : "delete failed", "error");
-                          }
-                        }}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <FriendsHome
+            friends={friends}
+            friendsSnap={friendsSnap}
+            gameHosts={gameHosts}
+            mediaRelay={mediaRelay}
+            localUserId={user.id}
+            localDisplayName={user.display_name}
+            activeServerId={activeServer?.id}
+            canModerate={
+              !!user.is_global_admin ||
+              myRank === "owner" ||
+              myRank === "admin" ||
+              myRank === "moderator"
+            }
+            onRefreshFriends={refreshFriends}
+            onOpenProfile={setProfileUser}
+            onOpenDm={(u) => void handleOpenDm(u)}
+            onRelayChange={setMediaRelay}
+            onGameHostsChange={setGameHosts}
+          />
         )}
         {view.kind === "settings" && (
           <SettingsView
@@ -1016,7 +1049,6 @@ function SettingsView({
 
   useEffect(() => {
     if (user.is_global_admin) void loadAdmin();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.is_global_admin]);
 
   return (
@@ -1033,185 +1065,197 @@ function SettingsView({
           }}
         />
       </div>
-      <label>
-        Display name
-        <input className="nc-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-      </label>
-      <label>
-        Avatar URL
-        <input
-          className="nc-input"
-          value={avatar}
-          onChange={(e) => setAvatar(e.target.value)}
-          placeholder="https://… (empty = default)"
-        />
-      </label>
-      <label>
-        Banner URL
-        <input
-          className="nc-input"
-          value={banner}
-          onChange={(e) => setBanner(e.target.value)}
-          placeholder="https://… (empty = default)"
-        />
-      </label>
-      <button type="button" className="primary" onClick={() => void save()}>
-        Save profile
-      </button>
-
-      <h3>Claim Global Admin</h3>
-      <p className="muted">
-        Only needed when the server set <code>global_admin_bootstrap_secret</code>.
-      </p>
-      <label>
-        Bootstrap secret
-        <input
-          className="nc-input"
-          value={claimSecret}
-          onChange={(e) => setClaimSecret(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        className="primary"
-        onClick={async () => {
-          try {
-            const u = await claimGlobalAdmin(claimSecret);
-            onUser(u);
-            pushToast("Global Admin claimed", "success");
-            void loadAdmin();
-          } catch (e) {
-            pushToast(e instanceof Error ? e.message : "claim failed", "error");
-          }
-        }}
-      >
-        Claim
-      </button>
-
-      {user.is_global_admin && (
-        <>
-          <h3>Global Admin - users</h3>
-          <button type="button" onClick={() => void loadAdmin()}>
-            Refresh users
+      <div className="settings-grid">
+        <label>
+          Display name
+          <input className="nc-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+        </label>
+        <label>
+          Avatar URL
+          <input
+            className="nc-input"
+            value={avatar}
+            onChange={(e) => setAvatar(e.target.value)}
+            placeholder="https://… (empty = default)"
+          />
+        </label>
+        <label className="settings-span-2">
+          Banner URL
+          <input
+            className="nc-input"
+            value={banner}
+            onChange={(e) => setBanner(e.target.value)}
+            placeholder="https://… (empty = default)"
+          />
+        </label>
+        <div className="settings-span-2">
+          <button type="button" className="primary" onClick={() => void save()}>
+            Save profile
           </button>
-          <ul className="admin-list">
-            {adminUsers.map((a) => (
-              <li key={a.user.id}>
-                <button type="button" className="admin-user-btn" onClick={() => undefined}>
-                  @{a.user.username} - {a.user.display_name}
-                  {a.user.is_global_admin ? " [GA]" : ""}
-                  {a.is_banned ? " [BANNED]" : ""}
-                </button>
-                {!a.user.is_global_admin && a.user.id !== user.id && (
-                  <span className="admin-actions">
-                    {a.is_banned ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await unbanUser(a.user.id);
-                          void loadAdmin();
-                        }}
-                      >
-                        Unban
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="danger-inline"
-                        onClick={async () => {
-                          const reason = prompt("Ban reason") || "banned by global admin";
-                          await banUser(a.user.id, reason);
-                          void loadAdmin();
-                        }}
-                      >
-                        Ban
-                      </button>
-                    )}
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>Claim Global Admin</h3>
+        <p className="muted">
+          Only needed when the server set <code>global_admin_bootstrap_secret</code>.
+        </p>
+        <div className="settings-grid">
+          <label className="settings-span-2">
+            Bootstrap secret
+            <input
+              className="nc-input"
+              value={claimSecret}
+              onChange={(e) => setClaimSecret(e.target.value)}
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="primary"
+          onClick={async () => {
+            try {
+              const u = await claimGlobalAdmin(claimSecret);
+              onUser(u);
+              pushToast("Global Admin claimed", "success");
+              void loadAdmin();
+            } catch (e) {
+              pushToast(e instanceof Error ? e.message : "claim failed", "error");
+            }
+          }}
+        >
+          Claim
+        </button>
+
+        {user.is_global_admin && (
+          <>
+            <h3>Global Admin - users</h3>
+            <button type="button" className="ghost sm" onClick={() => void loadAdmin()}>
+              Refresh users
+            </button>
+            <ul className="admin-list">
+              {adminUsers.map((a) => (
+                <li key={a.user.id}>
+                  <button type="button" className="admin-user-btn" onClick={() => undefined}>
+                    @{a.user.username} - {a.user.display_name}
+                    {a.user.is_global_admin ? " [GA]" : ""}
+                    {a.is_banned ? " [BANNED]" : ""}
+                  </button>
+                  {!a.user.is_global_admin && a.user.id !== user.id && (
+                    <span className="admin-actions">
+                      {a.is_banned ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await unbanUser(a.user.id);
+                            void loadAdmin();
+                          }}
+                        >
+                          Unban
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="danger-inline"
+                          onClick={async () => {
+                            const reason = prompt("Ban reason") || "banned by global admin";
+                            await banUser(a.user.id, reason);
+                            void loadAdmin();
+                          }}
+                        >
+                          Ban
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <h3>Global Admin - servers</h3>
+            <ul className="admin-list">
+              {servers.map((s) => (
+                <li key={s.id}>
+                  <span>
+                    {s.name} ({s.invite_code})
                   </span>
-                )}
-              </li>
-            ))}
-          </ul>
+                  <button
+                    type="button"
+                    className="danger-inline"
+                    onClick={async () => {
+                      if (!confirm(`Delete server ${s.name}?`)) return;
+                      await deleteAdminServer(s.id);
+                      onServersRefresh();
+                    }}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
 
-          <h3>Global Admin - servers</h3>
-          <ul className="admin-list">
-            {servers.map((s) => (
-              <li key={s.id}>
-                <span>
-                  {s.name} ({s.invite_code})
-                </span>
-                <button
-                  type="button"
-                  className="danger-inline"
-                  onClick={async () => {
-                    if (!confirm(`Delete server ${s.name}?`)) return;
-                    await deleteAdminServer(s.id);
-                    onServersRefresh();
-                  }}
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      <h3>Voice</h3>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={pushToTalk}
-          onChange={(e) => setPushToTalk(e.target.checked)}
-        />
-        Push to talk (unchecked = open mic)
-      </label>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={voiceSounds}
-          onChange={(e) => setVoiceSounds(e.target.checked)}
-        />
-        Join / leave sounds
-      </label>
-      <label>
-        Push to talk key
-        <input className="nc-input" value={hotkeyPtt} onChange={(e) => setHotkeyPtt(e.target.value)} />
-      </label>
-      <label>
-        Mute hotkey
-        <input className="nc-input" value={hotkeyMute} onChange={(e) => setHotkeyMute(e.target.value)} />
-      </label>
-      <label>
-        Deafen hotkey
-        <input
-          className="nc-input"
-          value={hotkeyDeafen}
-          onChange={(e) => setHotkeyDeafen(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        className="ghost"
-        onClick={async () => {
-          try {
-            const next = await saveVoiceSettings({
-              push_to_talk: pushToTalk,
-              hotkey_push_to_talk: hotkeyPtt,
-              hotkey_mute: hotkeyMute,
-              hotkey_deafen: hotkeyDeafen,
-              voice_sounds: voiceSounds,
-            });
-            onConfig?.(next);
-            window.dispatchEvent(new CustomEvent("nc-voice-config", { detail: next }));
-            pushToast("Voice settings saved", "success");
-          } catch (e) {
-            pushToast(e instanceof Error ? e.message : "save failed", "error");
-          }
-        }}
-      >
-        Save voice settings
-      </button>
+      <div className="settings-section">
+        <h3>Voice</h3>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={pushToTalk}
+            onChange={(e) => setPushToTalk(e.target.checked)}
+          />
+          Push to talk (unchecked = open mic)
+        </label>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={voiceSounds}
+            onChange={(e) => setVoiceSounds(e.target.checked)}
+          />
+          Join / leave sounds
+        </label>
+        <div className="settings-grid">
+          <label>
+            Push to talk key
+            <input className="nc-input" value={hotkeyPtt} onChange={(e) => setHotkeyPtt(e.target.value)} />
+          </label>
+          <label>
+            Mute hotkey
+            <input className="nc-input" value={hotkeyMute} onChange={(e) => setHotkeyMute(e.target.value)} />
+          </label>
+          <label>
+            Deafen hotkey
+            <input
+              className="nc-input"
+              value={hotkeyDeafen}
+              onChange={(e) => setHotkeyDeafen(e.target.value)}
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="ghost"
+          onClick={async () => {
+            try {
+              const next = await saveVoiceSettings({
+                push_to_talk: pushToTalk,
+                hotkey_push_to_talk: hotkeyPtt,
+                hotkey_mute: hotkeyMute,
+                hotkey_deafen: hotkeyDeafen,
+                voice_sounds: voiceSounds,
+              });
+              onConfig?.(next);
+              window.dispatchEvent(new CustomEvent("nc-voice-config", { detail: next }));
+              pushToast("Voice settings saved", "success");
+            } catch (e) {
+              pushToast(e instanceof Error ? e.message : "save failed", "error");
+            }
+          }}
+        >
+          Save voice settings
+        </button>
+      </div>
 
       <button type="button" className="danger" onClick={() => void onLogout()}>
         Log out

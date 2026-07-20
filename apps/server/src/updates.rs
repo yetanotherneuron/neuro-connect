@@ -1,5 +1,5 @@
-use crate::auth_api::{api_err, extract_user_id};
 use crate::admin_api::require_global_admin;
+use crate::auth_api::{api_err, extract_user_id};
 use crate::state::AppState;
 use axum::{
     body::Body,
@@ -105,10 +105,7 @@ pub async fn publish_update(
             "platform" => platform = field.text().await.unwrap_or_default(),
             "notes" => notes = field.text().await.unwrap_or_default(),
             "file" => {
-                filename = field
-                    .file_name()
-                    .unwrap_or("update.bin")
-                    .to_string();
+                filename = field.file_name().unwrap_or("update.bin").to_string();
                 file_bytes = Some(
                     field
                         .bytes()
@@ -200,8 +197,9 @@ pub fn cli_publish(
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("update.bin");
-    let manifest = write_update_artifact(&root, channel, platform, version, notes, filename, &bytes)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let manifest =
+        write_update_artifact(&root, channel, platform, version, notes, filename, &bytes)
+            .map_err(|e| anyhow::anyhow!(e))?;
     println!(
         "Published {} {} {} -> {}",
         manifest.channel, manifest.platform, manifest.version, manifest.filename

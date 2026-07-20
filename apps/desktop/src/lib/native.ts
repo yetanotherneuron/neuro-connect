@@ -102,6 +102,61 @@ export async function localIpv4(): Promise<string | null> {
   }
 }
 
+export type GoldbergStatus = {
+  ready: boolean;
+  has_x86: boolean;
+  has_x64: boolean;
+  assets_dir: string;
+  note: string;
+};
+
+export type PreparedGame = {
+  game_dir: string;
+  dll_path: string;
+  arch: string;
+  app_id: string;
+  listen_port: number;
+  backed_up: boolean;
+};
+
+export async function goldbergStatus(): Promise<GoldbergStatus> {
+  if (!isTauri()) {
+    return {
+      ready: false,
+      has_x86: false,
+      has_x64: false,
+      assets_dir: "",
+      note: "Goldberg prep requires the desktop app",
+    };
+  }
+  return invoke<GoldbergStatus>("goldberg_status");
+}
+
+export async function goldbergImportAssets(): Promise<GoldbergStatus> {
+  if (!isTauri()) throw new Error("desktop app required");
+  return invoke<GoldbergStatus>("goldberg_import_assets");
+}
+
+export async function goldbergPrepareGame(
+  appId: string,
+  accountName: string,
+  listenPort?: number,
+): Promise<PreparedGame> {
+  if (!isTauri()) throw new Error("desktop app required");
+  return invoke<PreparedGame>("goldberg_prepare_game", {
+    appId,
+    accountName,
+    listenPort: listenPort ?? null,
+  });
+}
+
+export async function goldbergApplyBroadcasts(ips: string[]): Promise<{ ok: boolean; ips: string[] }> {
+  if (!isTauri()) throw new Error("desktop app required");
+  return invoke("goldberg_apply_broadcasts", { ips });
+}
+
+export const GOLDBERG_DEFAULT_PORT = 47584;
+
 export async function downloadAndApplyUpdate(url: string, sha256: string, filename: string) {
   if (!isTauri()) {
     window.open(url, "_blank");
@@ -122,6 +177,6 @@ export function getBakedServerUrl(): string | null {
 
 export function getAppVersion(): string {
   return (
-    (import.meta as ImportMeta & { env: Record<string, string> }).env.NEURO_APP_VERSION || "0.1.0"
+    (import.meta as ImportMeta & { env: Record<string, string> }).env.NEURO_APP_VERSION || "0.2.0"
   );
 }

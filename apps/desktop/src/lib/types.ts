@@ -57,11 +57,21 @@ export interface MessageInfo {
   attachment_name?: string | null;
   created_at: string;
   edited_at?: string | null;
+  reactions?: ReactionInfo[];
+}
+
+export interface ReactionInfo {
+  emoji: string;
+  count: number;
+  reacted_by_me: boolean;
 }
 
 export interface DmThread {
   id: string;
-  peer: UserPublic;
+  peer?: UserPublic | null;
+  name?: string | null;
+  kind?: string;
+  members?: UserPublic[];
   updated_at: string;
 }
 
@@ -127,11 +137,14 @@ export type WsClientMessage =
 
 export type WsEvent =
   | { type: "message_created"; message: MessageInfo }
+  | { type: "message_deleted"; message_id: string; channel_id?: string | null; dm_id?: string | null }
+  | { type: "message_updated"; message: MessageInfo }
   | {
-      type: "message_deleted";
+      type: "message_reaction_updated";
       message_id: string;
       channel_id?: string | null;
       dm_id?: string | null;
+      reactions: ReactionInfo[];
     }
   | { type: "member_joined"; server_id: string; member: MemberInfo }
   | { type: "member_updated"; server_id: string; member: MemberInfo }
@@ -166,14 +179,56 @@ export type WsEvent =
     }
   | { type: "voice_error"; message: string }
   | { type: "game_host_updated"; host: GameHostInfo }
-  | { type: "game_host_removed"; host_id: string };
+  | { type: "game_host_removed"; host_id: string }
+  | { type: "media_relay_started"; relay: MediaRelayInfo }
+  | { type: "media_relay_stopped"; relay_id: string }
+  | { type: "friend_request_created"; request: FriendRequestInfo }
+  | { type: "friend_accepted"; user: UserPublic }
+  | { type: "friend_removed"; user_id: string };
+
+export interface FriendEntry {
+  user: UserPublic;
+  online: boolean;
+  since: string;
+}
+
+export interface FriendRequestInfo {
+  id: string;
+  from: UserPublic;
+  to: UserPublic;
+  created_at: string;
+}
+
+export interface FriendsSnapshot {
+  friends: FriendEntry[];
+  incoming: FriendRequestInfo[];
+  outgoing: FriendRequestInfo[];
+  blocked: UserPublic[];
+  ignored: UserPublic[];
+}
+
+export interface MediaRelayInfo {
+  id: string;
+  source_url: string;
+  stream_path: string;
+  title: string;
+  content_type?: string | null;
+  started_by: UserPublic;
+  channel_id?: string | null;
+  server_id?: string | null;
+  started_at: string;
+}
 
 export interface GameHostInfo {
   id: string;
+  room_code: string;
   user: UserPublic;
   game_name: string;
   address: string;
   note: string;
+  kind?: "direct" | "goldberg";
+  app_id?: string | null;
+  connect_command?: string | null;
   server_id?: string | null;
   created_at: string;
   expires_at: string;

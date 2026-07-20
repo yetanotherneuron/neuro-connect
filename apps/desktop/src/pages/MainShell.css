@@ -211,11 +211,15 @@
 
 .chat,
 .friends-view,
+.friends-home,
 .settings {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+.chat {
   overflow: hidden;
 }
 
@@ -352,6 +356,67 @@
   font-size: 0.78rem;
 }
 
+.msg-edited {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  margin-left: 4px;
+}
+
+.msg-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  align-items: center;
+}
+
+.msg-reaction {
+  font-size: 0.8rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.msg-reaction.mine {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.msg-react-quick {
+  display: none;
+  gap: 2px;
+}
+
+.msg:hover .msg-react-quick {
+  display: inline-flex;
+}
+
+.msg-react-add {
+  font-size: 0.85rem;
+  padding: 2px 4px;
+  opacity: 0.7;
+}
+
+.msg-react-add:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.group-dm-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--accent-soft);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
 .msg-file {
   display: inline-block;
   margin-top: 6px;
@@ -429,32 +494,38 @@
   font-size: 1rem;
 }
 
+.settings {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: none;
+  padding: 16px 20px 28px;
+}
+
 .placeholder {
   padding: 32px;
   max-width: 560px;
   overflow-y: auto;
 }
 
-.settings {
-  padding: 24px 32px;
-  max-width: 560px;
-}
-
 .settings-preview {
-  margin-bottom: 16px;
+  margin: 8px 0 0;
+  max-width: 420px;
 }
 
 .settings label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 0;
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .danger {
-  margin-top: 24px;
+  margin-top: 16px;
   background: rgba(239, 68, 68, 0.15);
   color: #fecaca;
   border: 1px solid rgba(239, 68, 68, 0.35);

@@ -8,7 +8,10 @@ use axum::{
 use neuro_shared::*;
 use uuid::Uuid;
 
-pub fn extract_user_id(headers: &HeaderMap, state: &AppState) -> Result<Uuid, (StatusCode, Json<ApiError>)> {
+pub fn extract_user_id(
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Result<Uuid, (StatusCode, Json<ApiError>)> {
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -38,6 +41,11 @@ pub fn require_not_banned(
 }
 
 pub fn api_err(status: StatusCode, msg: &str) -> (StatusCode, Json<ApiError>) {
+    if status.is_server_error() {
+        tracing::error!(%status, error = %msg, "api 5xx");
+    } else if status.is_client_error() && status != StatusCode::UNAUTHORIZED {
+        tracing::debug!(%status, error = %msg, "api 4xx");
+    }
     (
         status,
         Json(ApiError {
@@ -46,7 +54,10 @@ pub fn api_err(status: StatusCode, msg: &str) -> (StatusCode, Json<ApiError>) {
     )
 }
 
-fn maybe_elevate(state: &AppState, username: &str) -> Result<Option<UserPublic>, (StatusCode, Json<ApiError>)> {
+fn maybe_elevate(
+    state: &AppState,
+    username: &str,
+) -> Result<Option<UserPublic>, (StatusCode, Json<ApiError>)> {
     let bootstrap_required = !state.cfg.global_admin_bootstrap_secret.trim().is_empty();
     state
         .db
@@ -62,8 +73,10 @@ pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<ApiError>)> {
-    validate_username(&body.username).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
-    validate_password(&body.password).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    validate_username(&body.username)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    validate_password(&body.password)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     validate_display_name(&body.display_name)
         .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
 
@@ -76,8 +89,8 @@ pub async fn register(
         return Err(api_err(StatusCode::CONFLICT, "username already taken"));
     }
 
-    let hash =
-        hash_password(&body.password).map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let hash = hash_password(&body.password)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let mut user = state
         .db
         .create_user(&body.username, &hash, &body.display_name)
@@ -89,7 +102,10 @@ pub async fn register(
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     crate::activity_log::activity(
         "register",
-        &format!("user=@{} display=\"{}\" id={}", user.username, user.display_name, user.id),
+        &format!(
+            "user=@{} display=\"{}\" id={}",
+            user.username, user.display_name, user.id
+        ),
     );
     Ok(Json(AuthResponse { token, user }))
 }
@@ -103,7 +119,10 @@ pub async fn login(
         .find_user_by_username(&body.username)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
         .ok_or_else(|| {
-            crate::activity_log::activity("login_fail", &format!("user=@{} (unknown)", body.username));
+            crate::activity_log::activity(
+                "login_fail",
+                &format!("user=@{} (unknown)", body.username),
+            );
             api_err(StatusCode::UNAUTHORIZED, "invalid username or password")
         })?;
 
@@ -119,8 +138,14 @@ pub async fn login(
     let ok = verify_password(&body.password, &hash)
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     if !ok {
-        crate::activity_log::activity("login_fail", &format!("user=@{} (bad password)", user.username));
-        return Err(api_err(StatusCode::UNAUTHORIZED, "invalid username or password"));
+        crate::activity_log::activity(
+            "login_fail",
+            &format!("user=@{} (bad password)", user.username),
+        );
+        return Err(api_err(
+            StatusCode::UNAUTHORIZED,
+            "invalid username or password",
+        ));
     }
     let user = maybe_elevate(&state, &body.username)?.unwrap_or(user);
     let token = issue_token(user.id, &state.cfg.jwt_secret, state.cfg.token_ttl_hours)
@@ -172,7 +197,8 @@ pub async fn update_profile(
 ) -> Result<Json<UserPublic>, (StatusCode, Json<ApiError>)> {
     let uid = extract_user_id(&headers, &state)?;
     if let Some(ref name) = body.display_name {
-        validate_display_name(name).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+        validate_display_name(name)
+            .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     }
     if let Some(ref url) = body.avatar_url {
         validate_image_url(url).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;

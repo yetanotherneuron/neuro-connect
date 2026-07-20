@@ -37,7 +37,8 @@ pub async fn create_server(
     Json(body): Json<CreateServerRequest>,
 ) -> Result<Json<ServerInfo>, (StatusCode, Json<ApiError>)> {
     let uid = extract_user_id(&headers, &state)?;
-    validate_server_name(&body.name).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    validate_server_name(&body.name)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     if let Some(ref url) = body.icon_url {
         validate_image_url(url).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     }
@@ -52,7 +53,10 @@ pub async fn create_server(
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     crate::activity_log::activity(
         "server_new",
-        &format!("name=\"{}\" invite={} owner={}", server.name, server.invite_code, uid),
+        &format!(
+            "name=\"{}\" invite={} owner={}",
+            server.name, server.invite_code, uid
+        ),
     );
     Ok(Json(server))
 }
@@ -65,11 +69,16 @@ pub async fn join_server(
     let uid = extract_user_id(&headers, &state)?;
     let server = state
         .db
-        .join_server(uid, &body.invite_code.trim())
+        .join_server(uid, body.invite_code.trim())
         .map_err(|_| api_err(StatusCode::NOT_FOUND, "invalid invite code"))?;
     crate::activity_log::activity(
         "server_join",
-        &format!("invite={} user={} server=\"{}\"", body.invite_code.trim(), uid, server.name),
+        &format!(
+            "invite={} user={} server=\"{}\"",
+            body.invite_code.trim(),
+            uid,
+            server.name
+        ),
     );
     if let Ok(Some(user)) = state.db.get_user(uid) {
         if let Ok(Some(rank)) = state.db.member_rank(server.id, uid) {
@@ -126,7 +135,8 @@ pub async fn create_channel(
     if !rank.can_admin() {
         return Err(api_err(StatusCode::FORBIDDEN, "admin required"));
     }
-    validate_channel_name(&body.name).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    validate_channel_name(&body.name)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     let channel = state
         .db
         .create_channel(id, &body.name, body.kind)
@@ -150,7 +160,8 @@ pub async fn rename_channel(
     if !rank.can_admin() {
         return Err(api_err(StatusCode::FORBIDDEN, "admin required"));
     }
-    validate_channel_name(&body.name).map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    validate_channel_name(&body.name)
+        .map_err(|e| api_err(StatusCode::BAD_REQUEST, &e.to_string()))?;
     state
         .db
         .rename_channel(id, &body.name)

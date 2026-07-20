@@ -27,7 +27,8 @@ While connected to a voice channel:
 
 - Mesh renegotiation: each peer still has a direct connection; large rooms will feel this more than an SFU.
 - Desktop audio depends on the OS / WebView picker (not all platforms expose it).
-- No SFU and no server-side media relay yet (see media URL relay stub).
+- No SFU yet — screen share is mesh peer-to-peer.
+- For shared music/video from a URL, use **media URL relay** (server proxies the file; see [SERVER_SETUP.md](SERVER_SETUP.md)).
 
 ## ICE / NAT
 

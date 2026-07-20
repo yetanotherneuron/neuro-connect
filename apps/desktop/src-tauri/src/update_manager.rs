@@ -1,10 +1,14 @@
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub async fn apply_update(url: String, expected_sha256: String, filename: String) -> Result<serde_json::Value, String> {
+pub async fn apply_update(
+    url: String,
+    expected_sha256: String,
+    filename: String,
+) -> Result<serde_json::Value, String> {
     let tmp = std::env::temp_dir().join(format!("neuro-update-{}", filename));
     let bytes = reqwest::get(&url)
         .await
@@ -17,7 +21,9 @@ pub async fn apply_update(url: String, expected_sha256: String, filename: String
     hasher.update(&bytes);
     let got = format!("{:x}", hasher.finalize());
     if !expected_sha256.is_empty() && got != expected_sha256.to_lowercase() {
-        return Err(format!("hash mismatch: expected {expected_sha256}, got {got}"));
+        return Err(format!(
+            "hash mismatch: expected {expected_sha256}, got {got}"
+        ));
     }
 
     {
@@ -27,9 +33,7 @@ pub async fn apply_update(url: String, expected_sha256: String, filename: String
 
     let lower = filename.to_lowercase();
     if lower.ends_with(".exe") || lower.ends_with(".msi") {
-        Command::new(&tmp)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        Command::new(&tmp).spawn().map_err(|e| e.to_string())?;
         return Ok(serde_json::json!({ "ok": true, "mode": "installer", "path": tmp }));
     }
 
@@ -51,7 +55,7 @@ fn portable_extract_dir() -> Result<PathBuf, String> {
         .unwrap_or_else(|| PathBuf::from(".")))
 }
 
-fn extract_zip(zip_path: &PathBuf, dest: &PathBuf) -> Result<(), String> {
+fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
     let file = File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     for i in 0..archive.len() {

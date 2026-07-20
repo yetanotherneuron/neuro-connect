@@ -74,13 +74,19 @@ Publish client builds to this server so users update on launch (see [BUILD_RELEA
 neuro-server update publish --config server.toml --channel beta --platform windows-x64 --version 0.2.0 --file setup.exe --notes "..."
 ```
 
-## Media URL relay (roadmap)
+## Media URL relay
 
-Still a stub:
+Paste a direct audio/video URL in the client; the server fetches it and clients play via
+`GET /api/media/stream/{id}?token=…` (saves the origin from N parallel downloads).
 
-- `GET /api/media/status`
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/media/status` | Active relay (if any) |
+| POST | `/api/media/start` | Start relay `{ url, title?, channel_id?, server_id? }` |
+| POST | `/api/media/stop` | Stop (starter, mod, or global admin) |
+| GET | `/api/media/stream/{id}` | Proxied bytes (`Authorization` or `?token=`) |
 
-Planned: server-side stream-from-URL (paste a direct link → server relays).
+Private/local hosts are blocked (SSRF protection). One active relay at a time.
 
 ## Reverse proxy (optional)
 
