@@ -1,14 +1,9 @@
-.shell {
-  display: grid;
-  grid-template-columns: 72px 240px 1fr;
+/* AppShell uses .nc-shell from @neuro-connect/ui; keep panel/rail styles independent. */
+
+.nc-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
-  background: var(--bg);
-}
-
-.shell:has(.member-panel) {
-  grid-template-columns: 72px 240px 1fr 220px;
 }
 
 .server-rail {
@@ -21,6 +16,7 @@
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
+  height: 100%;
 }
 
 .rail-sep {
@@ -73,16 +69,11 @@
 .channel-panel,
 .member-panel {
   background: var(--bg-elevated);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
-}
-
-.member-panel {
-  border-right: none;
-  border-left: 1px solid var(--border);
 }
 
 .panel-head {
@@ -236,29 +227,8 @@
   font-size: 0.9rem;
 }
 
-.main-pane {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  margin: 8px 8px 8px 0;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(ellipse 60% 40% at 100% 0%, var(--accent-dim), transparent 55%),
-    var(--bg-chat);
-}
-
-.shell:has(.member-panel) .main-pane {
-  margin-right: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
 .friends-view,
-.friends-home,
-.settings {
+.friends-home {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -285,8 +255,9 @@
 
 .member-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   padding: 8px 10px;
 }
 
@@ -295,6 +266,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .rank {
@@ -302,6 +275,22 @@
   font-size: 0.72rem;
   text-transform: uppercase;
   margin-left: 6px;
+}
+
+.rank-chip {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-dim);
+  color: var(--accent-soft);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.rank-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .admin-badge {
@@ -319,6 +308,7 @@
 .admin-list li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
@@ -354,20 +344,4 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-}
-
-@media (max-width: 960px) {
-  .shell,
-  .shell:has(.member-panel),
-  .shell:not(:has(.member-panel)) {
-    grid-template-columns: 64px 200px 1fr;
-  }
-  .member-panel {
-    display: none;
-  }
-  .main-pane {
-    margin: 0;
-    border-radius: 0;
-    border: none;
-  }
 }

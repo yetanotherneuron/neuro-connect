@@ -53,6 +53,7 @@ export function ChatView({
   const [showJump, setShowJump] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<MessageInfo | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -61,6 +62,7 @@ export function ChatView({
   useEffect(() => {
     let cancelled = false;
     setMessages([]);
+    setReplyTo(null);
     setSearchOpen(false);
     setSearchQuery("");
     setSearchHits([]);
@@ -168,12 +170,14 @@ export function ChatView({
     if (!content || sending) return;
     setSending(true);
     try {
+      const replyId = replyTo?.id;
       const msg =
         mode === "channel"
-          ? await sendMessage(targetId, content)
-          : await sendDmMessage(targetId, content);
+          ? await sendMessage(targetId, content, undefined, replyId)
+          : await sendDmMessage(targetId, content, undefined, replyId);
       setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
       setText("");
+      setReplyTo(null);
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "send failed", "error");
     } finally {
@@ -189,12 +193,14 @@ export function ChatView({
     setUploading(true);
     try {
       const up = await uploadFile(file);
+      const replyId = replyTo?.id;
       const msg =
         mode === "channel"
-          ? await sendMessage(targetId, text.trim(), { url: up.url, name: up.name })
-          : await sendDmMessage(targetId, text.trim(), { url: up.url, name: up.name });
+          ? await sendMessage(targetId, text.trim(), { url: up.url, name: up.name }, replyId)
+          : await sendDmMessage(targetId, text.trim(), { url: up.url, name: up.name }, replyId);
       setMessages((m) => (m.some((x) => x.id === msg.id) ? m : [...m, msg]));
       setText("");
+      setReplyTo(null);
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "upload failed", "error");
     } finally {
@@ -295,6 +301,8 @@ export function ChatView({
               onDelete={() => void handleDelete(m.id)}
               onEdit={() => setEditTarget(m)}
               onReact={(emoji) => void handleReact(m.id, emoji)}
+              onReply={() => setReplyTo(m)}
+              onJumpToReply={jumpToMessage}
               onOpenProfile={onOpenProfile}
             />
           ))}
@@ -329,6 +337,24 @@ export function ChatView({
         </button>
       )}
       <div className="chat-composer">
+        {replyTo && (
+          <div className="chat-reply-strip">
+            <div className="chat-reply-strip-text">
+              <strong>Replying to {replyTo.author.display_name}</strong>
+              <span className="muted">
+                {replyTo.content || replyTo.attachment_name || "(attachment)"}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ghost sm"
+              title="Cancel reply"
+              onClick={() => setReplyTo(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="chat-composer-inner">
           <button
             type="button"

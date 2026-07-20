@@ -18,6 +18,8 @@ export function MessageItem({
   onDelete,
   onEdit,
   onReact,
+  onReply,
+  onJumpToReply,
   onOpenProfile,
 }: {
   message: MessageInfo;
@@ -28,6 +30,8 @@ export function MessageItem({
   onDelete: () => void;
   onEdit: () => void;
   onReact: (emoji: string) => void;
+  onReply?: () => void;
+  onJumpToReply?: (id: string) => void;
   onOpenProfile?: (user: UserPublic) => void;
 }) {
   const time = new Date(message.created_at).toLocaleTimeString([], {
@@ -47,6 +51,7 @@ export function MessageItem({
           e,
           [
             { id: "profile", label: "View profile" },
+            { id: "reply", label: "Reply", disabled: !onReply },
             { id: "edit", label: "Edit message", disabled: !isMine },
             { id: "react", label: "Add 👍" },
             { id: "delete", label: "Delete message", danger: true, disabled: !canDelete },
@@ -54,6 +59,7 @@ export function MessageItem({
           (id) => {
             if (id === "delete" && canDelete) onDelete();
             if (id === "edit" && isMine) onEdit();
+            if (id === "reply") onReply?.();
             if (id === "react") onReact("👍");
             if (id === "profile") onOpenProfile?.(message.author);
           },
@@ -81,6 +87,11 @@ export function MessageItem({
           <button type="button" title="More emoji" onClick={() => setPickerOpen((v) => !v)}>
             +
           </button>
+          {onReply && (
+            <button type="button" title="Reply" onClick={onReply}>
+              ↩
+            </button>
+          )}
           {isMine && (
             <button type="button" title="Edit" onClick={onEdit}>
               ✎
@@ -114,6 +125,17 @@ export function MessageItem({
             <span className="msg-time">{time}</span>
             {message.edited_at && <span className="msg-edited">(edited)</span>}
           </div>
+        )}
+        {message.reply_to && (
+          <button
+            type="button"
+            className="msg-reply-bar"
+            onClick={() => onJumpToReply?.(message.reply_to!.id)}
+            title="Jump to replied message"
+          >
+            <strong>{message.reply_to.author_display_name}</strong>
+            <span>{message.reply_to.content || "(attachment)"}</span>
+          </button>
         )}
         {message.content && <RenderMarkdown content={message.content} />}
         {message.attachment_url && (

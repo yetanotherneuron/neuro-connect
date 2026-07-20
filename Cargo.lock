@@ -3058,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "neuro-connect"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "neuro-host"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "neuro-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "neuro-shared"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",

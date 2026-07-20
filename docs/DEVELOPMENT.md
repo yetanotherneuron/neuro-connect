@@ -2,11 +2,12 @@
 
 ```
 neuro-connect/
-  apps/desktop/     Tauri 2 + React client
+  apps/desktop/     Tauri 2 + React client (0.4.0 shell)
   apps/server/      neuro-server (Axum + SQLite)
   crates/shared/    Protocol, models, Argon2 helpers
+  packages/         Shared TS: client-core (API) + ui (tokens/shell)
   website/          Static marketing site (GitHub Pages–ready)
-  web/              Future web/mobile scaffold
+  web/              Web client + Capacitor Android wrapper
   configs/          Example TOML configs
   docs/             User documentation
   requirements/     OS dependency lists
@@ -40,15 +41,21 @@ cargo run -p neuro-server -- server.toml
 
 On first empty DB you get `devuser` / `devpass12` (Global Admin) and **Dev Playground**.
 
-3. Terminal B - desktop:
+3. Terminal B - desktop (from monorepo root):
 
 ```powershell
-cd apps\desktop
 npm install
+cd apps\desktop
 npm run tauri dev
 ```
 
-4. Log in as `devuser` / `devpass12`. You should see a purple **Dev Mode** banner. Open a **Voice** channel and click **Join Voice** (allow the mic).
+Or web:
+
+```powershell
+npm run dev:web
+```
+
+4. Log in as `devuser` / `devpass12`. You should see a purple **Dev Mode** banner. Open a **Voice** channel and click **Join Voice** (allow the mic). Use **Share** for Apps | Windows | URL (media relay).
 
 ### Useful endpoints while developing
 
@@ -66,17 +73,20 @@ npm run tauri dev
 
 LAN discovery remains optional. Voice + screen share + media relay use `/api/ws` and HTTP as documented in [VOICE.md](VOICE.md) / [SERVER_SETUP.md](SERVER_SETUP.md).
 
-## Desktop UI layout (0.3+)
+## Desktop UI layout (0.4.0)
 
-The desktop client lives under `apps/desktop/src/`:
+Shared design tokens live in `packages/ui`. The desktop client under `apps/desktop/src/`:
 
 | Piece | Path |
 |-------|------|
-| Design tokens + button primitives | `styles/global.css` |
-| App shell (state + view switcher) | `pages/MainShell.tsx` |
-| Server rail / channel sidebar / members | `components/ServerRail.tsx`, `ChannelSidebar.tsx`, `MemberPanel.tsx` |
-| Settings | `components/SettingsView.tsx` + `SettingsView.css` |
-| Chat + messages | `ChatView.tsx` / `MessageItem.tsx` (+ co-located CSS) |
+| Design tokens (Neuro purple) | `packages/ui` + `styles/global.css` |
+| App shell (AppShell + state) | `pages/MainShell.tsx` |
+| Server rail / channel sidebar / members | `ServerRail`, `ChannelSidebar`, `MemberPanel` |
+| Friends Home (people only) | `FriendsHome.tsx` |
+| Game Hosts | `GameHostsView.tsx` (Home sidebar) |
+| Share picker Apps\|Windows\|URL | `SharePicker.tsx` |
+| Settings shell | `SettingsView.tsx` (SettingsShell) |
+| Chat + replies | `ChatView.tsx` / `MessageItem.tsx` |
 | Dialogs | `components/Modal.tsx` |
 | Emoji picker | `components/EmojiPicker.tsx` (`emoji-picker-react`) |
 

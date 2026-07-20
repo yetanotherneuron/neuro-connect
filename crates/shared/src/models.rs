@@ -115,6 +115,13 @@ pub struct MemberInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageReplyPreview {
+    pub id: Uuid,
+    pub author_display_name: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageInfo {
     pub id: Uuid,
     pub channel_id: Option<Uuid>,
@@ -127,6 +134,10 @@ pub struct MessageInfo {
     pub edited_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub reactions: Vec<ReactionInfo>,
+    #[serde(default)]
+    pub reply_to_id: Option<Uuid>,
+    #[serde(default)]
+    pub reply_to: Option<MessageReplyPreview>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

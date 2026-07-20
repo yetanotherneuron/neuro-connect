@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Neuro Connect</string>
+    <string name="title_activity_main">Neuro Connect</string>
+    <string name="package_name">com.yetanotherneuron.neuroconnect</string>
+    <string name="custom_url_scheme">com.yetanotherneuron.neuroconnect</string>
+</resources>

@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AppShell } from "@neuro-connect/ui";
 import { ProfileCard } from "../components/Avatar";
 import { ChannelSidebar, dmTitle } from "../components/ChannelSidebar";
 import { ChatView } from "../components/ChatView";
 import { FriendsHome } from "../components/FriendsHome";
+import { GameHostsView } from "../components/GameHostsView";
 import { MediaRelayBar } from "../components/MediaRelayBar";
 import { MemberPanel } from "../components/MemberPanel";
 import { ConfirmDialog, Modal, PromptDialog, SelectDialog } from "../components/Modal";
 import { ServerRail } from "../components/ServerRail";
 import { SettingsView } from "../components/SettingsView";
+import { SharePicker } from "../components/SharePicker";
 import { useToast } from "../components/Toast";
 import { VoiceConnectedBar, VoicePanel } from "../components/VoicePanel";
 import {
@@ -55,6 +58,7 @@ type View =
   | { kind: "dm"; id: string; title: string }
   | { kind: "voice"; id: string; name: string }
   | { kind: "friends" }
+  | { kind: "hosts" }
   | { kind: "settings" }
   | { kind: "empty" };
 
@@ -145,6 +149,7 @@ export function MainShell({
   const [mediaRelay, setMediaRelay] = useState<MediaRelayInfo | null>(null);
   const [friendsSnap, setFriendsSnap] = useState<FriendsSnapshot | null>(null);
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  const [sharePickerOpen, setSharePickerOpen] = useState(false);
   const voiceRef = useRef<VoiceSession | null>(null);
   const realtimeRef = useRef<RealtimeClient | null>(null);
   const configRef = useRef(config);
@@ -483,213 +488,243 @@ export function MainShell({
   const canManageChannels =
     myRank === "owner" || myRank === "admin" || Boolean(user.is_global_admin);
 
-  return (
-    <div className="shell">
-      <ServerRail
-        navMode={navMode}
-        servers={servers}
-        activeServerId={activeServer?.id || null}
-        serverUnread={serverUnread}
-        onHome={() => void selectHome()}
-        onSelectServer={(s) => void selectServer(s)}
-        onCreateServer={() => setDialog({ type: "create-server" })}
-        onJoinServer={() => setDialog({ type: "join-server" })}
-      />
+  const canModerate =
+    !!user.is_global_admin ||
+    myRank === "owner" ||
+    myRank === "admin" ||
+    myRank === "moderator";
 
-      <ChannelSidebar
-        navMode={navMode}
-        activeServer={activeServer}
-        channels={channels}
-        visibleDms={visibleDms}
-        friends={friends}
-        viewKind={view.kind}
-        viewId={view.kind === "channel" || view.kind === "dm" || view.kind === "voice" ? view.id : undefined}
-        voiceChannelId={voiceChannelId}
-        user={user}
-        canManageChannels={canManageChannels}
-        voiceBar={
-          voiceChannelId ? (
-            <VoiceConnectedBar
-              channelName={voiceChannelName}
-              muted={localVoice.muted}
-              deafened={localVoice.deafened}
-              sharing={screenShare.localSharing}
-              onMute={() => voiceRef.current?.toggleMute()}
-              onDeafen={() => voiceRef.current?.toggleDeafen()}
-              onLeave={() => void leaveVoice()}
-              onOpen={() =>
-                setView({
-                  kind: "voice",
-                  id: voiceChannelId,
-                  name: voiceChannelName,
-                })
-              }
-            />
-          ) : null
-        }
-        onOpenFriends={() => setView({ kind: "friends" })}
-        onOpenDmView={(d) => setView({ kind: "dm", id: d.id, title: dmTitle(d) })}
-        onCloseDm={closeDm}
-        onOpenFriendDm={(u) => void handleOpenDm(u)}
-        onOpenProfile={setProfileUser}
-        onNewGroupDm={() => {
-          setGroupName("");
-          setGroupSelected(new Set());
-          setDialog({ type: "group-dm" });
-        }}
-        onOpenChannel={(c) => setView({ kind: "channel", id: c.id, title: `# ${c.name}` })}
-        onOpenVoice={(c) => setView({ kind: "voice", id: c.id, name: c.name })}
-        onAddChannel={() => {
-          if (!activeServer || !canManageChannels) {
-            pushToast("Admin required to create channels", "error");
-            return;
-          }
-          setDialog({ type: "channel-name", next: "create" });
-        }}
-        onRenameChannel={(c) => setDialog({ type: "rename-channel", channel: c })}
-        onDeleteChannel={(c) => setDialog({ type: "delete-channel", channel: c })}
-        onOpenSettings={() => setView({ kind: "settings" })}
-        onRemoveFriend={(id) => {
-          void removeFriend(id)
-            .then(() => refreshFriends())
-            .catch((err) => pushToast(err instanceof Error ? err.message : "failed", "error"));
-        }}
-        onBlockFriend={(id) => {
-          void blockUser(id)
-            .then(() => refreshFriends())
-            .catch((err) => pushToast(err instanceof Error ? err.message : "failed", "error"));
-        }}
-      />
+  const showMediaBar =
+    (view.kind === "channel" || view.kind === "voice") && mediaRelay;
 
-      <main className="main-pane">
-        {view.kind === "channel" && mediaRelay && (
-          <MediaRelayBar
-            relay={mediaRelay}
-            serverId={activeServer?.id}
-            channelId={view.id}
-            localUserId={user.id}
-            canModerate={
-              !!user.is_global_admin ||
-              myRank === "owner" ||
-              myRank === "admin" ||
-              myRank === "moderator"
-            }
-            onRelayChange={setMediaRelay}
-          />
-        )}
-        {view.kind === "channel" && (
-          <ChatView
-            mode="channel"
-            targetId={view.id}
-            me={user}
-            title={view.title}
-            onOpenProfile={setProfileUser}
-          />
-        )}
-        {view.kind === "dm" && (
-          <ChatView
-            mode="dm"
-            targetId={view.id}
-            me={user}
-            title={view.title}
-            onOpenProfile={setProfileUser}
-          />
-        )}
-        {view.kind === "voice" && (
-          <VoicePanel
-            channelName={view.name}
-            channelId={view.id}
-            connected={voiceChannelId === view.id}
-            connecting={voiceConnecting && voiceChannelId !== view.id}
-            peers={voiceChannelId === view.id ? voicePeers : []}
-            localUserId={user.id}
-            localMuted={localVoice.muted}
-            localDeafened={localVoice.deafened}
-            pttMode={config.push_to_talk}
-            pttHeld={localVoice.pttHeld}
-            canMove={
-              myRank === "owner" ||
-              myRank === "admin" ||
-              myRank === "moderator" ||
-              !!user.is_global_admin
-            }
-            voiceChannels={channels.filter((c) => c.kind === "voice")}
-            screenSharing={voiceChannelId === view.id && screenShare.sharing}
-            localScreenSharing={voiceChannelId === view.id && screenShare.localSharing}
-            screenSharerId={voiceChannelId === view.id ? screenShare.sharerId : null}
-            screenStream={voiceChannelId === view.id ? screenShare.videoStream : null}
-            onJoin={() => void joinVoice(view.id)}
-            onLeave={() => void leaveVoice()}
-            onToggleMute={() => voiceRef.current?.toggleMute()}
-            onToggleDeafen={() => voiceRef.current?.toggleDeafen()}
-            onMutePeer={(uid, muted) => voiceRef.current?.mutePeerLocally(uid, muted)}
-            onMovePeer={(uid, to) => voiceRef.current?.moveMember(uid, to)}
-            onStartScreenShare={() => void voiceRef.current?.startScreenShare()}
-            onStopScreenShare={() => void voiceRef.current?.stopScreenShare()}
-            onOpenProfile={(uid) => {
-              const peer =
-                voicePeers.find((p) => p.user.id === uid)?.user ||
-                members.find((m) => m.user.id === uid)?.user;
-              if (peer) setProfileUser(peer);
-            }}
-          />
-        )}
-        {view.kind === "friends" && (
-          <FriendsHome
-            friends={friends}
-            friendsSnap={friendsSnap}
-            gameHosts={gameHosts}
-            mediaRelay={mediaRelay}
-            localUserId={user.id}
-            localDisplayName={user.display_name}
-            activeServerId={activeServer?.id}
-            canModerate={
-              !!user.is_global_admin ||
-              myRank === "owner" ||
-              myRank === "admin" ||
-              myRank === "moderator"
-            }
-            onRefreshFriends={refreshFriends}
-            onOpenProfile={setProfileUser}
-            onOpenDm={(u) => void handleOpenDm(u)}
-            onRelayChange={setMediaRelay}
-            onGameHostsChange={setGameHosts}
-          />
-        )}
-        {view.kind === "settings" && (
-          <SettingsView
-            user={user}
-            config={config}
-            servers={servers}
-            onUser={onUser}
-            onConfig={onConfig}
-            onServersRefresh={() => void refreshServers()}
-            onLogout={onLogout}
-          />
-        )}
-        {view.kind === "empty" && (
-          <div className="placeholder">
-            <h2>Welcome to Neuro Connect</h2>
-            <p className="muted">Pick Home for DMs, or select a server for channels.</p>
-          </div>
-        )}
-      </main>
-
-      {navMode === "server" && (
-        <MemberPanel
-          members={members}
-          myRank={myRank}
+  const mainContent = (
+    <>
+      {showMediaBar && (
+        <MediaRelayBar
+          relay={mediaRelay}
+          serverId={activeServer?.id}
+          channelId={view.kind === "channel" || view.kind === "voice" ? view.id : null}
           localUserId={user.id}
+          canModerate={canModerate}
+          onRelayChange={setMediaRelay}
+        />
+      )}
+      {view.kind === "channel" && (
+        <ChatView
+          mode="channel"
+          targetId={view.id}
+          me={user}
+          title={view.title}
+          onOpenProfile={setProfileUser}
+        />
+      )}
+      {view.kind === "dm" && (
+        <ChatView
+          mode="dm"
+          targetId={view.id}
+          me={user}
+          title={view.title}
+          onOpenProfile={setProfileUser}
+        />
+      )}
+      {view.kind === "voice" && (
+        <VoicePanel
+          channelName={view.name}
+          channelId={view.id}
+          connected={voiceChannelId === view.id}
+          connecting={voiceConnecting && voiceChannelId !== view.id}
+          peers={voiceChannelId === view.id ? voicePeers : []}
+          localUserId={user.id}
+          localMuted={localVoice.muted}
+          localDeafened={localVoice.deafened}
+          pttMode={config.push_to_talk}
+          pttHeld={localVoice.pttHeld}
+          canMove={canModerate}
+          voiceChannels={channels.filter((c) => c.kind === "voice")}
+          screenSharing={voiceChannelId === view.id && screenShare.sharing}
+          localScreenSharing={voiceChannelId === view.id && screenShare.localSharing}
+          screenSharerId={voiceChannelId === view.id ? screenShare.sharerId : null}
+          screenStream={voiceChannelId === view.id ? screenShare.videoStream : null}
+          onJoin={() => void joinVoice(view.id)}
+          onLeave={() => void leaveVoice()}
+          onToggleMute={() => voiceRef.current?.toggleMute()}
+          onToggleDeafen={() => voiceRef.current?.toggleDeafen()}
+          onMutePeer={(uid, muted) => voiceRef.current?.mutePeerLocally(uid, muted)}
+          onMovePeer={(uid, to) => voiceRef.current?.moveMember(uid, to)}
+          onOpenSharePicker={() => setSharePickerOpen(true)}
+          onStopScreenShare={() => void voiceRef.current?.stopScreenShare()}
+          onOpenProfile={(uid) => {
+            const peer =
+              voicePeers.find((p) => p.user.id === uid)?.user ||
+              members.find((m) => m.user.id === uid)?.user;
+            if (peer) setProfileUser(peer);
+          }}
+        />
+      )}
+      {view.kind === "friends" && (
+        <FriendsHome
+          friends={friends}
+          friendsSnap={friendsSnap}
+          onRefreshFriends={refreshFriends}
           onOpenProfile={setProfileUser}
           onOpenDm={(u) => void handleOpenDm(u)}
+        />
+      )}
+      {view.kind === "hosts" && (
+        <GameHostsView
+          gameHosts={gameHosts}
+          localUserId={user.id}
+          localDisplayName={user.display_name}
+          activeServerId={activeServer?.id}
+          canModerate={canModerate}
+          onGameHostsChange={setGameHosts}
+        />
+      )}
+      {view.kind === "settings" && (
+        <SettingsView
+          user={user}
+          config={config}
+          servers={servers}
+          activeServer={activeServer}
+          members={members}
+          myRank={myRank}
+          meta={_meta}
+          onUser={onUser}
+          onConfig={onConfig}
+          onServersRefresh={() => void refreshServers()}
+          onMembersRefresh={async () => {
+            if (activeServer) setMembers(await listMembers(activeServer.id));
+          }}
           onSetRank={(m, rank) => {
             if (!activeServer) return;
             void setMemberRank(activeServer.id, m.user.id, rank)
               .then(async () => setMembers(await listMembers(activeServer.id)))
               .catch((e) => pushToast(e instanceof Error ? e.message : "rank failed", "error"));
           }}
+          onClose={() => setView(navMode === "home" ? { kind: "friends" } : { kind: "empty" })}
+          onLogout={onLogout}
         />
       )}
+      {view.kind === "empty" && (
+        <div className="placeholder">
+          <h2>Welcome to Neuro Connect</h2>
+          <p className="muted">Pick Home for DMs, or select a server for channels.</p>
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <>
+      <AppShell
+        rail={
+          <ServerRail
+            navMode={navMode}
+            servers={servers}
+            activeServerId={activeServer?.id || null}
+            serverUnread={serverUnread}
+            onHome={() => void selectHome()}
+            onSelectServer={(s) => void selectServer(s)}
+            onCreateServer={() => setDialog({ type: "create-server" })}
+            onJoinServer={() => setDialog({ type: "join-server" })}
+          />
+        }
+        sidebar={
+          <ChannelSidebar
+            navMode={navMode}
+            activeServer={activeServer}
+            channels={channels}
+            visibleDms={visibleDms}
+            friends={friends}
+            viewKind={view.kind}
+            viewId={
+              view.kind === "channel" || view.kind === "dm" || view.kind === "voice"
+                ? view.id
+                : undefined
+            }
+            voiceChannelId={voiceChannelId}
+            user={user}
+            canManageChannels={canManageChannels}
+            voiceBar={
+              voiceChannelId ? (
+                <VoiceConnectedBar
+                  channelName={voiceChannelName}
+                  muted={localVoice.muted}
+                  deafened={localVoice.deafened}
+                  sharing={screenShare.localSharing}
+                  onMute={() => voiceRef.current?.toggleMute()}
+                  onDeafen={() => voiceRef.current?.toggleDeafen()}
+                  onLeave={() => void leaveVoice()}
+                  onOpen={() =>
+                    setView({
+                      kind: "voice",
+                      id: voiceChannelId,
+                      name: voiceChannelName,
+                    })
+                  }
+                />
+              ) : null
+            }
+            onOpenFriends={() => setView({ kind: "friends" })}
+            onOpenHosts={() => setView({ kind: "hosts" })}
+            onOpenDmView={(d) => setView({ kind: "dm", id: d.id, title: dmTitle(d) })}
+            onCloseDm={closeDm}
+            onOpenFriendDm={(u) => void handleOpenDm(u)}
+            onOpenProfile={setProfileUser}
+            onNewGroupDm={() => {
+              setGroupName("");
+              setGroupSelected(new Set());
+              setDialog({ type: "group-dm" });
+            }}
+            onOpenChannel={(c) => setView({ kind: "channel", id: c.id, title: `# ${c.name}` })}
+            onOpenVoice={(c) => setView({ kind: "voice", id: c.id, name: c.name })}
+            onAddChannel={() => {
+              if (!activeServer || !canManageChannels) {
+                pushToast("Admin required to create channels", "error");
+                return;
+              }
+              setDialog({ type: "channel-name", next: "create" });
+            }}
+            onRenameChannel={(c) => setDialog({ type: "rename-channel", channel: c })}
+            onDeleteChannel={(c) => setDialog({ type: "delete-channel", channel: c })}
+            onOpenSettings={() => setView({ kind: "settings" })}
+            onRemoveFriend={(id) => {
+              void removeFriend(id)
+                .then(() => refreshFriends())
+                .catch((err) =>
+                  pushToast(err instanceof Error ? err.message : "failed", "error"),
+                );
+            }}
+            onBlockFriend={(id) => {
+              void blockUser(id)
+                .then(() => refreshFriends())
+                .catch((err) =>
+                  pushToast(err instanceof Error ? err.message : "failed", "error"),
+                );
+            }}
+          />
+        }
+        main={mainContent}
+        aside={
+          navMode === "server" ? (
+            <MemberPanel
+              members={members}
+              myRank={myRank}
+              localUserId={user.id}
+              onOpenProfile={setProfileUser}
+              onOpenDm={(u) => void handleOpenDm(u)}
+              onSetRank={(m, rank) => {
+                if (!activeServer) return;
+                void setMemberRank(activeServer.id, m.user.id, rank)
+                  .then(async () => setMembers(await listMembers(activeServer.id)))
+                  .catch((e) =>
+                    pushToast(e instanceof Error ? e.message : "rank failed", "error"),
+                  );
+              }}
+            />
+          ) : null
+        }
+      />
 
       {profileUser && (
         <div className="profile-overlay" onClick={() => setProfileUser(null)}>
@@ -715,6 +750,18 @@ export function MainShell({
           </div>
         </div>
       )}
+
+      <SharePicker
+        open={sharePickerOpen}
+        onClose={() => setSharePickerOpen(false)}
+        onPickDisplay={() => void voiceRef.current?.startScreenShare()}
+        mediaRelay={mediaRelay}
+        serverId={activeServer?.id}
+        channelId={voiceChannelId || (view.kind === "voice" ? view.id : null)}
+        localUserId={user.id}
+        canModerate={canModerate}
+        onRelayChange={setMediaRelay}
+      />
 
       {dialog?.type === "create-server" && (
         <PromptDialog
@@ -839,7 +886,11 @@ export function MainShell({
             <div>
               <span className="muted">Select friends</span>
               <div className="nc-modal-list">
-                {friends.length === 0 && <p className="muted" style={{ padding: 8 }}>No friends yet</p>}
+                {friends.length === 0 && (
+                  <p className="muted" style={{ padding: 8 }}>
+                    No friends yet
+                  </p>
+                )}
                 {friends.map((f) => {
                   const selected = groupSelected.has(f.user.id);
                   return (
@@ -892,6 +943,6 @@ export function MainShell({
           </div>
         </Modal>
       )}
-    </div>
+    </>
   );
 }

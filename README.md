@@ -10,22 +10,22 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 
 | Piece | Path | Status |
 |-------|------|--------|
-| Desktop client (Tauri 2 + React) | `apps/desktop` | MVP + voice |
-| Community server (Rust / Axum + SQLite) | `apps/server` | MVP + voice + updates |
+| Desktop client (Tauri 2 + React) | `apps/desktop` | **0.4.0** UI rewrite |
+| Shared client API + UI packages | `packages/client-core`, `packages/ui` | Live |
+| Community server (Rust / Axum + SQLite) | `apps/server` | MVP + voice + updates + replies |
 | Shared protocol crate | `crates/shared` | MVP |
 | Official website (static) | `website` | Live |
-| Web / mobile scaffold | `web` | Stub / TODO |
+| Web client | `web` | Auth + text MVP |
+| Android (Capacitor) | `web` + Capacitor | MVP (auth/text/DMs) |
 | Voice (WebRTC mesh / Opus) | desktop + server signaling | Live |
-| Screen share + desktop audio | desktop + voice signaling | Live |
-| Media URL relay | server + desktop | Live |
-| Friends (requests / block / presence) | server + desktop | Live |
-| Group DMs | server + desktop | Live |
-| Message edit + reactions | server + desktop | Live |
+| Screen share + desktop audio | desktop + Share Apps\|Windows\|URL | Live |
+| Media URL relay | server + voice Share → URL | Live |
+| Friends (requests / block / presence) | server + clients | Live |
+| Group DMs | server + clients | Live |
+| Message edit + reactions + replies | server + desktop | Live |
 | Emoji picker + unread + message search | desktop + server | Live |
-| LAN mDNS + Game Host board | server + desktop | Live |
+| LAN mDNS + Game Host board | server + desktop (Home → Game Hosts) | Live |
 | Goldberg Steam LAN helper | desktop | Live (import release) |
-| Goldberg Steam LAN helper | desktop | Live (import release) |
-| Web / mobile scaffold | `web` | Stub / TODO |
 
 ## Quick start
 
@@ -36,18 +36,14 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 
 ## Documentation
 
-- [INSTALL.md](docs/INSTALL.md) - install & run (Windows + Linux)
-- [CONFIGURATION.md](docs/CONFIGURATION.md) - client & server settings
-- [SERVER_SETUP.md](docs/SERVER_SETUP.md) - hosting communities
-- [VPS_HOSTING.md](docs/VPS_HOSTING.md) - public-IP VPS (no domain)
-- [FIREWALL.md](docs/FIREWALL.md) - ufw / firewalld / Windows Firewall
-- [VOICE.md](docs/VOICE.md) - voice rooms + screen share
-- [GAME_HOSTING.md](docs/GAME_HOSTING.md) - LAN co-op + Goldberg room codes
-- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - common errors
+- [FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) - desktop / web / Android capability matrix
+- [MACOS.md](docs/MACOS.md) - macOS desktop builds
+- [ANDROID.md](docs/ANDROID.md) - Capacitor Android MVP
+- [LINUX_DIST.md](docs/LINUX_DIST.md) - AppImage / deb / rpm packaging notes
 - [BUILD_RELEASE.md](docs/BUILD_RELEASE.md) - Beta/Release builds + self-hosted updates
 - [DEVELOPMENT.md](docs/DEVELOPMENT.md) - repo layout & local dev loop
 - [scripts/README.md](scripts/README.md) - start/stop/build `.bat` / `.sh` helpers
-- [LINUX_DIST.md](docs/LINUX_DIST.md) - AppImage / Linux packaging notes
+- [PROMPT_0.4.0.md](docs/PROMPT_0.4.0.md) - 0.4.0 product brief archive
 
 ## Contributing
 
@@ -55,7 +51,7 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 - Open PRs against `main` using the [pull request template](.github/pull_request_template.md).
 - CI runs `cargo check` / `cargo test` and desktop `tsc` on Windows and Linux.
 
-## Features (MVP)
+## Features (0.4.0)
 
 - Username + Argon2 password (no email / phone); data stored in **SQLite** (`database_path`)
 - Display names in any language (including Persian)
@@ -63,20 +59,20 @@ Self-hosted, lightweight, privacy-first voice & text chat for friends. Discord-l
 - Servers with predefined ranks (Owner, Admin, Moderator, Member)
 - **Global Admin Mode** - one configurable account with instance-wide powers
 - **Test / Dev Mode** - localhost seed users
-- Text chat with Markdown, spoilers, code highlighting
+- Text chat with Markdown, spoilers, code highlighting, **replies**
 - **Voice rooms** - WebRTC mesh (Opus), PTT / open mic, mute / deafen, move members
-- **Screen share** - one sharer per voice channel; optional desktop audio when the OS picker provides it
+- **Screen share** - Apps \| Windows \| **URL** (media relay) from the voice Share picker
 - **LAN discovery** - mDNS find servers on your network
-- **Game Host board** - share a **room code** for LAN / Steam-LAN (Goldberg) co-op
+- **Game Host board** - Home → Game Hosts; room codes for LAN / Steam-LAN (Goldberg)
 - **Goldberg helper** - import emu once, prepare game folder, auto `custom_broadcasts` on join
-- **Friends** - requests, accept/decline, block, ignore, online presence
-- Message edit, reactions, and full emoji picker
-- Unread indicators and in-chat message search
+- **Friends** - requests, accept/decline, block, ignore, online presence (no Stream tab)
+- Message edit, reactions, emoji picker, unread, search
 - File uploads up to 12 MB (paste links for larger files)
 - DMs where either participant can delete messages
 - **Beta builds** with selectable Server URL; **Release builds** locked to a baked VPS URL
 - **Self-hosted auto-update** via the same neuro-server (not GitHub)
-- Dark UI (black + purple accents); cleaned shell layout in 0.3+
+- Dark UI (black + purple accents); Spacebar/Stoat-class shell in 0.4.0
+- Shared `@neuro-connect/client-core` + `@neuro-connect/ui` for desktop and web
 
 ## License
 

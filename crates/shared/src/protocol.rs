@@ -56,6 +56,8 @@ pub struct SendMessageRequest {
     pub content: String,
     pub attachment_url: Option<String>,
     pub attachment_name: Option<String>,
+    #[serde(default)]
+    pub reply_to_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

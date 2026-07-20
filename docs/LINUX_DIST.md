@@ -1,39 +1,45 @@
-# Linux release notes
+# Linux distribution builds
 
-AppImage and native Linux binaries must be **built on a Linux machine** (WiX/NSIS are Windows-only; AppImage needs Linux).
+Neuro Connect desktop packaging on Linux uses [Tauri 2](https://v2.tauri.app/) bundle targets.
 
-## On a Linux builder
+## Artifacts
 
-```bash
-# Server
-./scripts/build-server.sh
-# produces dist/neuro-server
+| Format | Path (after build) | Notes |
+|--------|-------------------|--------|
+| AppImage | `dist/*.AppImage` | Preferred portable binary — **build on Linux** |
+| Debian `.deb` | `dist/linux/*.deb` | When `bundle.targets` includes `deb` |
+| RPM `.rpm` | `dist/linux/*.rpm` | When `bundle.targets` includes `rpm` |
+| Raw binary | `dist/neuro-connect` | Unbundled release binary |
 
-# Client AppImage
-./scripts/build-client.sh
-# copies *.AppImage into dist/
+Windows `build-all.bat` / `build-client.ps1` produce **NSIS + MSI + portable exe** into `dist\`.
 
-# Launcher
-cp scripts/neuro-connect.sh dist/
-chmod +x dist/*.sh dist/neuro-server dist/neuro-connect 2>/dev/null || true
-```
+Cross-platform extras from `build-all`:
+- **APK** via `scripts\build-android.bat` (needs Android SDK or auto-bootstrap into `.tools\android-sdk`)
+- **AppImage** via `scripts\build-appimage.bat` (needs **WSL**, **Docker**, or a Linux host — not produced by native Windows Tauri)
 
-## Suggested GitHub Release assets (Linux)
+If AppImage/APK cannot be built, `dist\CROSS_PLATFORM_MISSING.txt` explains why.
 
-| File | Purpose |
-|------|---------|
-| `Neuro-Connect-x86_64.AppImage` | Desktop client |
-| `neuro-connect.sh` | Simple launcher |
-| `neuro-server` | Server core binary |
-| `start-server.sh` / `stop-server.sh` | Helpers |
-| `server.example.toml` | Config |
-
-## Tray host on Linux
-
-`Neuro Server.exe` (tray host) is Windows-focused. On Linux, run:
+Build on a Linux host (or CI `ubuntu-latest`):
 
 ```bash
-./start-server.sh
+# Beta (selectable server URL at login)
+NEURO_CHANNEL=beta ./scripts/build-client.sh
+
+# Release (baked server URL)
+NEURO_CHANNEL=release NEURO_SERVER_URL=https://chat.example.com ./scripts/build-client.sh
 ```
 
-in a terminal for live logs. A Linux tray host can be added later.
+Optional AppImage-only helper: `./scripts/build-appimage.sh`.
+
+## Dependencies
+
+See [requirements/linux.md](../requirements/linux.md). For `.deb` / `.rpm` you need the usual Tauri Linux deps plus packaging tools (`dpkg`, `rpm-build` as appropriate).
+
+## Channels
+
+Same as Windows: **Beta** allows choosing the server URL; **Release** bakes `NEURO_SERVER_URL` into the client. Self-hosted updates use `/api/updates` with `platform` values such as `linux-x64`.
+
+## Notes
+
+- AppImage builds must run on Linux; Windows `package-dist` only copies launcher script stubs into `dist/linux/`.
+- Tray / autostart for Linux remain optional follow-ups.

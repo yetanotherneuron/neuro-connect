@@ -33,15 +33,28 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    defaults:
-      run:
-        working-directory: apps/desktop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      - name: Typecheck desktop
+        run: npm run build -w neuro-connect
+      - name: Typecheck web
+        run: npm run build -w neuro-connect-web
+
+  packaging-notes:
+    name: Packaging docs present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check packaging docs
+        run: |
+          test -f docs/LINUX_DIST.md
+          test -f docs/MACOS.md
+          test -f docs/FEATURE_MATRIX.md
+          test -f requirements/macos.md
+          test -f scripts/build-client.sh

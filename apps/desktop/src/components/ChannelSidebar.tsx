@@ -21,6 +21,7 @@ export function ChannelSidebar({
   canManageChannels,
   voiceBar,
   onOpenFriends,
+  onOpenHosts,
   onOpenDmView,
   onCloseDm,
   onOpenFriendDm,
@@ -47,6 +48,7 @@ export function ChannelSidebar({
   canManageChannels: boolean;
   voiceBar?: ReactNode;
   onOpenFriends: () => void;
+  onOpenHosts: () => void;
   onOpenDmView: (d: DmThread) => void;
   onCloseDm: (id: string) => void;
   onOpenFriendDm: (u: UserPublic) => void;
@@ -121,6 +123,22 @@ export function ChannelSidebar({
               })}
               <button type="button" className="nav-item muted" onClick={onNewGroupDm}>
                 + New group DM
+              </button>
+            </div>
+            <div className="panel-section">
+              <button
+                type="button"
+                className={`nav-item ${viewKind === "friends" ? "active" : ""}`}
+                onClick={onOpenFriends}
+              >
+                Friends
+              </button>
+              <button
+                type="button"
+                className={`nav-item ${viewKind === "hosts" ? "active" : ""}`}
+                onClick={onOpenHosts}
+              >
+                Game Hosts
               </button>
             </div>
             <div className="panel-section">

@@ -1,0 +1,64 @@
+:root {
+  /* Surfaces */
+  --bg-deep: #050508;
+  --bg-base: #07070b;
+  --bg: #07070b;
+  --bg-elevated: #0e0e14;
+  --bg-panel: #12121a;
+  --bg-hover: #1a1a26;
+  --bg-chat: #0a0a10;
+  --bg-sidebar: #0c0c12;
+  --bg-rail: #08080e;
+  --border: #222233;
+  --border-strong: #2e2e42;
+
+  /* Text */
+  --text: #ececf4;
+  --text-muted: #8b8ba0;
+  --text-dim: #6a6a7c;
+
+  /* Brand — Neuro purple */
+  --accent: #7c3aed;
+  --accent-soft: #a78bfa;
+  --accent-dim: rgba(124, 58, 237, 0.18);
+  --accent-border: rgba(124, 58, 237, 0.35);
+
+  /* Semantic */
+  --danger: #ef4444;
+  --danger-soft: #fecaca;
+  --danger-dim: rgba(239, 68, 68, 0.15);
+  --danger-border: rgba(239, 68, 68, 0.35);
+  --success: #22c55e;
+  --online: #3dd68c;
+  --unread: #ffffff;
+  --mention: #f59e0b;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Layout */
+  --rail-width: 72px;
+  --sidebar-width: 240px;
+  --members-width: 240px;
+  --settings-nav-width: 218px;
+
+  /* Typography */
+  --font: "Outfit", "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", Consolas, monospace;
+
+  /* Shadows / motion */
+  --shadow-lg: 0 10px 32px rgba(0, 0, 0, 0.55);
+  --ease: 140ms ease;
+}

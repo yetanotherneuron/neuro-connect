@@ -28,7 +28,7 @@ export function VoicePanel({
   onMutePeer,
   onMovePeer,
   onOpenProfile,
-  onStartScreenShare,
+  onOpenSharePicker,
   onStopScreenShare,
 }: {
   channelName: string;
@@ -54,7 +54,7 @@ export function VoicePanel({
   onMutePeer: (userId: string, muted: boolean) => void;
   onMovePeer: (userId: string, toChannelId: string) => void;
   onOpenProfile: (userId: string) => void;
-  onStartScreenShare: () => void;
+  onOpenSharePicker: () => void;
   onStopScreenShare: () => void;
 }) {
   const { openContextMenu, contextMenuNode } = useContextMenu();
@@ -195,15 +195,10 @@ export function VoicePanel({
               <button
                 type="button"
                 className="ghost"
-                onClick={onStartScreenShare}
-                disabled={screenSharing && !localScreenSharing}
-                title={
-                  screenSharing && !localScreenSharing
-                    ? "Someone else is sharing"
-                    : "Share screen"
-                }
+                onClick={onOpenSharePicker}
+                title="Share — Apps, Windows, or URL"
               >
-                Share screen
+                Share
               </button>
             )}
             {pttMode && (

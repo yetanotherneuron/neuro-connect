@@ -24,11 +24,18 @@ $serverName = if ($Channel -eq "release") { "Neuro Server.exe" } else { "Neuro S
 Copy-Item (Join-Path $rel "neuro-host.exe") (Join-Path $dist $serverName) -Force
 
 $clientName = if ($Channel -eq "release") { "Neuro Connect.exe" } else { "Neuro Connect Beta.exe" }
-$clientSrc = Join-Path $root "apps\desktop\src-tauri\target\release\neuro-connect.exe"
-if (Test-Path (Join-Path $dist $clientName)) {
-  Write-Host "Client portable already present: $clientName"
-} elseif (Test-Path $clientSrc) {
+$clientCandidates = @(
+  (Join-Path $root "target\release\neuro-connect.exe"),
+  (Join-Path $root "apps\desktop\src-tauri\target\release\neuro-connect.exe")
+)
+$clientSrc = $clientCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($clientSrc) {
   Copy-Item $clientSrc (Join-Path $dist $clientName) -Force
+  Write-Host "Client portable: $clientName"
+} elseif (Test-Path (Join-Path $dist $clientName)) {
+  Write-Host "Client portable already present (stale?): $clientName"
+} else {
+  Write-Host "Client portable not found - run build-client.bat after packaging server."
 }
 
 if (-not (Test-Path (Join-Path $dist "server.toml"))) {
@@ -46,4 +53,4 @@ if (Test-Path (Join-Path $root "docs\LINUX_DIST.md")) {
 }
 
 Write-Host ""
-Write-Host "dist\ ready. Server: $serverName  Client: $clientName"
+Write-Host ("dist ready. Server: {0}  Client: {1}" -f $serverName, $clientName)

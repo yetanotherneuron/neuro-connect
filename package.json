@@ -1,0 +1,19 @@
+{
+  "name": "neuro-connect-monorepo",
+  "private": true,
+  "version": "0.4.0",
+  "workspaces": [
+    "packages/*",
+    "apps/desktop",
+    "web"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @neuro-connect/client-core -w @neuro-connect/ui",
+    "dev:desktop": "npm run dev -w neuro-connect",
+    "dev:web": "npm run dev -w neuro-connect-web",
+    "build:desktop": "npm run build -w neuro-connect",
+    "build:web": "npm run build -w neuro-connect-web",
+    "build:android": "npm run build:android -w neuro-connect-web",
+    "cap:sync": "npm run cap:sync -w neuro-connect-web"
+  }
+}

@@ -82,6 +82,7 @@ impl Database {
                 attachment_name TEXT,
                 created_at TEXT NOT NULL,
                 edited_at TEXT,
+                reply_to_id TEXT,
                 FOREIGN KEY(author_id) REFERENCES users(id)
             );
 
@@ -264,6 +265,7 @@ impl Database {
             SELECT id, user_b FROM dms;
             "#,
         );
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN reply_to_id TEXT", []);
         Ok(())
     }
 
@@ -680,14 +682,15 @@ impl Database {
         content: &str,
         attachment_url: Option<&str>,
         attachment_name: Option<&str>,
+        reply_to_id: Option<Uuid>,
     ) -> anyhow::Result<MessageInfo> {
         let id = Uuid::new_v4();
         let created_at = Utc::now();
         {
             let conn = self.conn.lock().unwrap();
             conn.execute(
-                "INSERT INTO messages (id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                "INSERT INTO messages (id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, reply_to_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     id.to_string(),
                     channel_id.map(|u| u.to_string()),
@@ -696,7 +699,8 @@ impl Database {
                     content,
                     attachment_url,
                     attachment_name,
-                    created_at.to_rfc3339()
+                    created_at.to_rfc3339(),
+                    reply_to_id.map(|u| u.to_string()),
                 ],
             )?;
             if let Some(dm) = dm_id {
@@ -709,6 +713,7 @@ impl Database {
         let author = self
             .get_user(author_id)?
             .ok_or_else(|| anyhow::anyhow!("author missing"))?;
+        let reply_to = reply_to_id.and_then(|rid| self.load_reply_preview(rid));
         Ok(MessageInfo {
             id,
             channel_id,
@@ -720,7 +725,29 @@ impl Database {
             created_at,
             edited_at: None,
             reactions: vec![],
+            reply_to_id,
+            reply_to,
         })
+    }
+
+    fn load_reply_preview(&self, id: Uuid) -> Option<MessageReplyPreview> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT m.id, u.display_name, m.content
+             FROM messages m JOIN users u ON u.id = m.author_id
+             WHERE m.id=?1",
+            params![id.to_string()],
+            |r| {
+                let content: String = r.get(2)?;
+                let truncated: String = content.chars().take(120).collect();
+                Ok(MessageReplyPreview {
+                    id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
+                    author_display_name: r.get(1)?,
+                    content: truncated,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn edit_message(
@@ -834,7 +861,7 @@ impl Database {
     ) -> anyhow::Result<Vec<MessageInfo>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT m.id, m.channel_id, m.dm_id, m.content, m.attachment_url, m.attachment_name, m.created_at, m.edited_at,
+            "SELECT m.id, m.channel_id, m.dm_id, m.content, m.attachment_url, m.attachment_name, m.created_at, m.edited_at, m.reply_to_id,
                     u.id, u.username, u.display_name, u.avatar_url, u.banner_url, u.created_at, u.is_global_admin
              FROM messages m JOIN users u ON u.id = m.author_id
              WHERE m.{col}=?1 ORDER BY m.created_at DESC LIMIT ?2"
@@ -860,22 +887,33 @@ impl Database {
                         .unwrap()
                         .with_timezone(&Utc)
                 }),
+                reply_to_id: r
+                    .get::<_, Option<String>>(8)?
+                    .and_then(|s| Uuid::parse_str(&s).ok()),
                 author: UserPublic {
-                    id: Uuid::parse_str(&r.get::<_, String>(8)?).unwrap(),
-                    username: r.get(9)?,
-                    display_name: r.get(10)?,
-                    avatar_url: r.get(11)?,
-                    banner_url: r.get(12)?,
-                    created_at: chrono::DateTime::parse_from_rfc3339(&r.get::<_, String>(13)?)
+                    id: Uuid::parse_str(&r.get::<_, String>(9)?).unwrap(),
+                    username: r.get(10)?,
+                    display_name: r.get(11)?,
+                    avatar_url: r.get(12)?,
+                    banner_url: r.get(13)?,
+                    created_at: chrono::DateTime::parse_from_rfc3339(&r.get::<_, String>(14)?)
                         .unwrap()
                         .with_timezone(&Utc),
-                    is_global_admin: r.get::<_, i64>(14)? != 0,
+                    is_global_admin: r.get::<_, i64>(15)? != 0,
                 },
                 reactions: vec![],
+                reply_to: None,
             })
         })?;
         let mut msgs: Vec<_> = rows.filter_map(|r| r.ok()).collect();
         msgs.reverse();
+        drop(stmt);
+        drop(conn);
+        for m in &mut msgs {
+            if let Some(rid) = m.reply_to_id {
+                m.reply_to = self.load_reply_preview(rid);
+            }
+        }
         Ok(msgs)
     }
 
@@ -887,7 +925,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let row = conn
             .query_row(
-                "SELECT m.id, m.channel_id, m.dm_id, m.author_id, m.content, m.attachment_url, m.attachment_name, m.created_at, m.edited_at,
+                "SELECT m.id, m.channel_id, m.dm_id, m.author_id, m.content, m.attachment_url, m.attachment_name, m.created_at, m.edited_at, m.reply_to_id,
                         u.id, u.username, u.display_name, u.avatar_url, u.banner_url, u.created_at, u.is_global_admin
                  FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id=?1",
                 params![id.to_string()],
@@ -899,23 +937,26 @@ impl Database {
                     let dm_id = r
                         .get::<_, Option<String>>(2)?
                         .map(|s| Uuid::parse_str(&s).unwrap());
+                    let reply_to_id = r
+                        .get::<_, Option<String>>(9)?
+                        .and_then(|s| Uuid::parse_str(&s).ok());
                     Ok((
                         MessageInfo {
                             id: Uuid::parse_str(&r.get::<_, String>(0)?).unwrap(),
                             channel_id,
                             dm_id,
                             author: UserPublic {
-                                id: Uuid::parse_str(&r.get::<_, String>(9)?).unwrap(),
-                                username: r.get(10)?,
-                                display_name: r.get(11)?,
-                                avatar_url: r.get(12)?,
-                                banner_url: r.get(13)?,
+                                id: Uuid::parse_str(&r.get::<_, String>(10)?).unwrap(),
+                                username: r.get(11)?,
+                                display_name: r.get(12)?,
+                                avatar_url: r.get(13)?,
+                                banner_url: r.get(14)?,
                                 created_at: chrono::DateTime::parse_from_rfc3339(
-                                    &r.get::<_, String>(14)?,
+                                    &r.get::<_, String>(15)?,
                                 )
                                 .unwrap()
                                 .with_timezone(&Utc),
-                                is_global_admin: r.get::<_, i64>(15)? != 0,
+                                is_global_admin: r.get::<_, i64>(16)? != 0,
                             },
                             content: r.get(4)?,
                             attachment_url: r.get(5)?,
@@ -929,6 +970,8 @@ impl Database {
                                     .with_timezone(&Utc)
                             }),
                             reactions: vec![],
+                            reply_to_id,
+                            reply_to: None,
                         },
                         author_id,
                         channel_id,
@@ -937,7 +980,13 @@ impl Database {
                 },
             )
             .optional()?;
-        Ok(row)
+        drop(conn);
+        Ok(row.map(|(mut msg, author_id, channel_id, dm_id)| {
+            if let Some(rid) = msg.reply_to_id {
+                msg.reply_to = self.load_reply_preview(rid);
+            }
+            (msg, author_id, channel_id, dm_id)
+        }))
     }
 
     pub fn delete_message(&self, id: Uuid) -> anyhow::Result<()> {
@@ -2188,7 +2237,7 @@ impl Database {
         }
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at
+            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at, reply_to_id
              FROM messages WHERE channel_id=?1 AND content LIKE ?2 COLLATE NOCASE
              ORDER BY created_at DESC LIMIT ?3",
         )?;
@@ -2205,6 +2254,7 @@ impl Database {
                     r.get::<_, Option<String>>(6)?,
                     r.get::<_, String>(7)?,
                     r.get::<_, Option<String>>(8)?,
+                    r.get::<_, Option<String>>(9)?,
                 ))
             },
         )?;
@@ -2212,11 +2262,13 @@ impl Database {
         drop(stmt);
         drop(conn);
         let mut out = Vec::new();
-        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited) in collected
+        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited, reply_to_id) in collected
         {
             let Some(author) = self.get_user(author_id)? else {
                 continue;
             };
+            let reply_to_id = reply_to_id.and_then(|s| Uuid::parse_str(&s).ok());
+            let reply_to = reply_to_id.and_then(|rid| self.load_reply_preview(rid));
             out.push(MessageInfo {
                 id,
                 channel_id: channel_id.and_then(|s| Uuid::parse_str(&s).ok()),
@@ -2234,6 +2286,8 @@ impl Database {
                         .map(|d| d.with_timezone(&Utc))
                 }),
                 reactions: vec![],
+                reply_to_id,
+                reply_to,
             });
         }
         Ok(out)
@@ -2251,7 +2305,7 @@ impl Database {
         }
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at
+            "SELECT id, channel_id, dm_id, author_id, content, attachment_url, attachment_name, created_at, edited_at, reply_to_id
              FROM messages WHERE dm_id=?1 AND content LIKE ?2 COLLATE NOCASE
              ORDER BY created_at DESC LIMIT ?3",
         )?;
@@ -2266,17 +2320,20 @@ impl Database {
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, String>(7)?,
                 r.get::<_, Option<String>>(8)?,
+                r.get::<_, Option<String>>(9)?,
             ))
         })?;
         let collected: Vec<_> = rows.filter_map(|r| r.ok()).collect();
         drop(stmt);
         drop(conn);
         let mut out = Vec::new();
-        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited) in collected
+        for (id, channel_id, dm_id, author_id, content, att_url, att_name, created, edited, reply_to_id) in collected
         {
             let Some(author) = self.get_user(author_id)? else {
                 continue;
             };
+            let reply_to_id = reply_to_id.and_then(|s| Uuid::parse_str(&s).ok());
+            let reply_to = reply_to_id.and_then(|rid| self.load_reply_preview(rid));
             out.push(MessageInfo {
                 id,
                 channel_id: channel_id.and_then(|s| Uuid::parse_str(&s).ok()),
@@ -2294,6 +2351,8 @@ impl Database {
                         .map(|d| d.with_timezone(&Utc))
                 }),
                 reactions: vec![],
+                reply_to_id,
+                reply_to,
             });
         }
         Ok(out)

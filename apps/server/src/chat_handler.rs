@@ -69,6 +69,20 @@ pub async fn send_message(
     if body.content.trim().is_empty() && body.attachment_url.is_none() {
         return Err(api_err(StatusCode::BAD_REQUEST, "empty message"));
     }
+    if let Some(reply_id) = body.reply_to_id {
+        let (target, _, target_channel, _) = state
+            .db
+            .get_message(reply_id)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+            .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "reply target not found"))?;
+        let _ = target;
+        if target_channel != Some(id) {
+            return Err(api_err(
+                StatusCode::BAD_REQUEST,
+                "reply target must be in the same channel",
+            ));
+        }
+    }
     let msg = state
         .db
         .insert_message(
@@ -78,6 +92,7 @@ pub async fn send_message(
             body.content.trim(),
             body.attachment_url.as_deref(),
             body.attachment_name.as_deref(),
+            body.reply_to_id,
         )
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     state.publish(WsEvent::MessageCreated {
@@ -317,6 +332,20 @@ pub async fn send_dm_message(
     if body.content.trim().is_empty() && body.attachment_url.is_none() {
         return Err(api_err(StatusCode::BAD_REQUEST, "empty message"));
     }
+    if let Some(reply_id) = body.reply_to_id {
+        let (target, _, _, target_dm) = state
+            .db
+            .get_message(reply_id)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+            .ok_or_else(|| api_err(StatusCode::BAD_REQUEST, "reply target not found"))?;
+        let _ = target;
+        if target_dm != Some(dm_id) {
+            return Err(api_err(
+                StatusCode::BAD_REQUEST,
+                "reply target must be in the same DM",
+            ));
+        }
+    }
     let msg = state
         .db
         .insert_message(
@@ -326,6 +355,7 @@ pub async fn send_dm_message(
             body.content.trim(),
             body.attachment_url.as_deref(),
             body.attachment_name.as_deref(),
+            body.reply_to_id,
         )
         .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     state.publish(WsEvent::MessageCreated {
